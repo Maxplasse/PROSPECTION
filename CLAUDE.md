@@ -421,7 +421,7 @@ Analyse l'entreprise fournie et retourne UNIQUEMENT un JSON avec :
 }
 
 Critères ICP Digilityx :
-- Secteurs cibles : [à compléter par l'utilisateur]
+- Secteurs cibles : Pharma/Santé, Tech, Service B2B, Education, Transports/Logistique, BAF, e-commerce, Service, Immobilier, Tourisme/Loisir, Grande distribution, Luxe, Recrutement
 - Taille : ETI / Grand Groupe prioritaires
 - Tier 1 : score ICP > 70
 - Tier 2 : score ICP 40-70

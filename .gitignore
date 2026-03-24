@@ -12,6 +12,17 @@ dist
 dist-ssr
 *.local
 
+# Environment
+.env
+.env.local
+
+# MCP config (contains access tokens)
+.mcp.json
+
+# Seed data (large xlsx files + generated SQL)
+seed/
+scripts/generated-sql/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
