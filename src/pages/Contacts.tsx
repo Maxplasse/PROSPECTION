@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useSearchParams, Link } from 'react-router-dom'
-import { Users, Search, Loader2, ChevronLeft, ChevronRight, X, Building2 } from 'lucide-react'
+import { Users, Search, Loader2, ChevronLeft, ChevronRight, X, Building2, FilterX } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useSupabaseQuery } from '@/lib/hooks/use-supabase'
 import { Badge } from '@/components/ui/badge'
@@ -88,6 +88,19 @@ export default function Contacts() {
   const [entrepriseLinkFilter, setEntrepriseLinkFilter] = useState<string>('all')
   const [sortBy, setSortBy] = useState<string>('relations')
   const [selected, setSelected] = useState<ContactRow | null>(null)
+
+  const hasActiveFilters = hierarchieFilter !== 'all' || personaFilter !== 'all' || statutFilter !== 'all' || entrepriseLinkFilter !== 'all' || search.trim() !== ''
+
+  function clearAllFilters() {
+    setHierarchieFilter('all')
+    setPersonaFilter('all')
+    setStatutFilter('all')
+    setEntrepriseLinkFilter('all')
+    setSearch('')
+    setPage(0)
+  }
+
+  const activeClass = 'border-primary bg-primary/10 text-primary'
 
   // Auto-open contact drawer from query param
   useEffect(() => {
@@ -205,7 +218,7 @@ export default function Contacts() {
         </div>
 
         <Select value={hierarchieFilter} onValueChange={(v) => { setHierarchieFilter(v as string); setPage(0) }}>
-          <SelectTrigger>
+          <SelectTrigger className={hierarchieFilter !== 'all' ? activeClass : ''}>
             <SelectValue>{hierarchieFilter === 'all' ? 'Toute hiérarchie' : hierarchieFilter}</SelectValue>
           </SelectTrigger>
           <SelectContent>
@@ -218,7 +231,7 @@ export default function Contacts() {
         </Select>
 
         <Select value={personaFilter} onValueChange={(v) => { setPersonaFilter(v as string); setPage(0) }}>
-          <SelectTrigger>
+          <SelectTrigger className={personaFilter !== 'all' ? activeClass : ''}>
             <SelectValue>{personaFilter === 'all' ? 'Toute persona' : personaFilter}</SelectValue>
           </SelectTrigger>
           <SelectContent>
@@ -232,7 +245,7 @@ export default function Contacts() {
         </Select>
 
         <Select value={statutFilter} onValueChange={(v) => { setStatutFilter(v as string); setPage(0) }}>
-          <SelectTrigger>
+          <SelectTrigger className={statutFilter !== 'all' ? activeClass : ''}>
             <SelectValue>{statutFilter === 'all' ? 'Tout statut' : statutFilter}</SelectValue>
           </SelectTrigger>
           <SelectContent>
@@ -247,7 +260,7 @@ export default function Contacts() {
         </Select>
 
         <Select value={entrepriseLinkFilter} onValueChange={(v) => { setEntrepriseLinkFilter(v as string); setPage(0) }}>
-          <SelectTrigger>
+          <SelectTrigger className={entrepriseLinkFilter !== 'all' ? activeClass : ''}>
             <SelectValue>
               {entrepriseLinkFilter === 'all' ? 'Toute entreprise'
                 : entrepriseLinkFilter === 'sans' ? 'Sans entreprise'
@@ -275,6 +288,18 @@ export default function Contacts() {
             <SelectItem value="recent">Plus récent</SelectItem>
           </SelectContent>
         </Select>
+
+        {hasActiveFilters && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={clearAllFilters}
+            className="text-muted-foreground hover:text-foreground"
+          >
+            <FilterX className="h-4 w-4 mr-1.5" />
+            Effacer
+          </Button>
+        )}
       </div>
 
       {loading ? (
