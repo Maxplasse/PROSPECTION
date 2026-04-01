@@ -42,7 +42,7 @@ export interface DashboardStats {
   total_notifications: number
   deals_en_cours: number
   contacts_a_contacter: number
-  contacts_a_surveiller: number
+  contacts_contactes: number
   tier1: number
   tier2: number
   tier3: number
@@ -56,13 +56,13 @@ export function useDashboardStats() {
       supabase.from('notifications').select('id', { count: 'exact', head: true }),
     ])
 
-    const [dealsRes, tier1Res, tier2Res, tier3Res, aContacterRes, aSurveillerRes] = await Promise.all([
+    const [dealsRes, tier1Res, tier2Res, tier3Res, aContacterRes, contactesRes] = await Promise.all([
       supabase.from('entreprises').select('id', { count: 'exact', head: true }).eq('statut_entreprise', 'Deal en cours'),
       supabase.from('entreprises').select('id', { count: 'exact', head: true }).eq('tier', 'Tier 1'),
       supabase.from('entreprises').select('id', { count: 'exact', head: true }).eq('tier', 'Tier 2'),
       supabase.from('entreprises').select('id', { count: 'exact', head: true }).eq('tier', 'Tier 3'),
-      supabase.from('contacts').select('id', { count: 'exact', head: true }).eq('statut_contact', 'A contacter'),
-      supabase.from('contacts').select('id', { count: 'exact', head: true }).eq('statut_contact', 'A surveiller'),
+      supabase.from('contacts').select('id', { count: 'exact', head: true }).eq('statut_contact', 'À contacter'),
+      supabase.from('contacts').select('id', { count: 'exact', head: true }).eq('statut_contact', 'Contacté'),
     ])
 
     return {
@@ -72,7 +72,7 @@ export function useDashboardStats() {
         total_notifications: notifications.count ?? 0,
         deals_en_cours: dealsRes.count ?? 0,
         contacts_a_contacter: aContacterRes.count ?? 0,
-        contacts_a_surveiller: aSurveillerRes.count ?? 0,
+        contacts_contactes: contactesRes.count ?? 0,
         tier1: tier1Res.count ?? 0,
         tier2: tier2Res.count ?? 0,
         tier3: tier3Res.count ?? 0,

@@ -4,7 +4,6 @@ export type StatutEntreprise =
   | 'Qualifiée'
   | 'A démarcher'
   | 'En cours'
-  | 'Bon Vivant'
   | 'Actuellement client'
   | 'Deal en cours'
 
@@ -13,20 +12,17 @@ export type Persona =
   | 'Marketing'
   | 'Produit'
   | 'Design'
-  | 'Commercial'
   | 'Hors expertise Digi'
 
-export type Hierarchie = 'COMEX' | 'Directeur' | 'Responsable' | 'Opérationnel'
-
-export type Priorite = 'Priorité 1' | 'Priorité 2' | 'Priorité 3'
+export type Hierarchie = 'COMEX' | 'Directeur' | 'Manager' | 'Opérationnel'
 
 export type StatutContact =
-  | 'A contacter'
-  | 'A surveiller'
-  | 'En Discussion'
-  | 'Bon Vivant'
-  | 'Pas intéressant'
-  | 'A relancer'
+  | 'À contacter'
+  | 'Contacté'
+  | 'Intéressé'
+  | 'Pas intéressé'
+  | 'En attente'
+  | 'Déjà client'
 
 export type NiveauRelation =
   | 'Ami'
@@ -46,7 +42,7 @@ export type NotificationType =
   | 'qualification_change'
   | 'activity_detected'
 
-export type MembreRole = 'membre' | 'account_manager'
+export type MembreRole = 'membre' | 'account_manager' | 'admin'
 
 export type ActivityType =
   | 'post'
@@ -64,6 +60,8 @@ export type QualificationSource = 'manual' | 'llm' | 'phantombuster' | 'import' 
 
 export type EntityType = 'contact' | 'entreprise'
 
+export type CompanyTypology = 'Grand Groupe' | 'ETI' | 'PME' | 'TPE' | 'Startup'
+
 export type SecteurDigi =
   | 'Pharma/Santé'
   | 'Tech'
@@ -78,6 +76,10 @@ export type SecteurDigi =
   | 'Grande distribution'
   | 'Luxe'
   | 'Recrutement'
+  | 'Non spécifié'
+  | 'Concurrent'
+
+export type IcpStatus = 'Oui' | 'Non' | 'Non spécifié'
 
 export interface Entreprise {
   id: string
@@ -88,7 +90,7 @@ export interface Entreprise {
   company_employee_count: number | null
   company_employee_range: string | null
   company_location: string | null
-  company_typology: string | null
+  company_typology: CompanyTypology | null
   secteur_digi: SecteurDigi | null
   icp: boolean
   scoring_icp: number
@@ -98,11 +100,13 @@ export interface Entreprise {
   account_manager_id: string | null
   parent_company_id: string | null
   is_subsidiary: boolean
+  is_parent_entity: boolean
   company_website_from_linkedin: string | null
   company_description: string | null
   company_specialties: string | null
   tier: Tier | null
   statut_entreprise: StatutEntreprise | null
+  source_acquisition: string | null
   created_at: string
   updated_at: string
 }
@@ -135,7 +139,6 @@ export interface Contact {
   last_scraped_at: string | null
   persona: Persona | null
   hierarchie: Hierarchie | null
-  priorite: Priorite | null
   contact_digi: boolean
   statut_contact: StatutContact | null
   /** CACHED — maintained by trigger from contacts_membres_relations */
@@ -143,6 +146,7 @@ export interface Contact {
   scoring: number
   /** CACHED — maintained by trigger from contacts_membres_relations */
   nb_personnes_digi_relation: number
+  owner_membre_id: string | null
   query: string | null
   created_at: string
   updated_at: string
@@ -172,6 +176,7 @@ export interface MembreDigilityx {
   full_name: string
   role: MembreRole
   email: string | null
+  consent: boolean
   created_at: string
 }
 
@@ -222,5 +227,23 @@ export interface QualificationLog {
   source: QualificationSource | null
   metadata: Record<string, unknown> | null
   created_by: string | null
+  created_at: string
+}
+
+export interface ScrapingSnapshot {
+  id: string
+  contact_id: string
+  scraped_at: string
+  position: string | null
+  company_name: string | null
+  company_id_linkedin: string | null
+  location: string | null
+  summary: string | null
+  title_description: string | null
+  connection_degree: string | null
+  is_premium: boolean | null
+  shared_connections_count: number | null
+  profile_image_url: string | null
+  raw_data: Record<string, unknown> | null
   created_at: string
 }

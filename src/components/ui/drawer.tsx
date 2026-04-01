@@ -7,10 +7,11 @@ interface DrawerProps {
   onClose: () => void
   title: string
   children: React.ReactNode
+  footer?: React.ReactNode
   className?: string
 }
 
-export function Drawer({ open, onClose, title, children, className }: DrawerProps) {
+export function Drawer({ open, onClose, title, children, footer, className }: DrawerProps) {
   React.useEffect(() => {
     if (open) {
       document.body.style.overflow = 'hidden'
@@ -43,6 +44,11 @@ export function Drawer({ open, onClose, title, children, className }: DrawerProp
         <div className="flex-1 overflow-y-auto px-6 py-4">
           {children}
         </div>
+        {footer && (
+          <div className="px-6 py-4 border-t border-border">
+            {footer}
+          </div>
+        )}
       </div>
     </>
   )

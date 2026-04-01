@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom'
 import { Building2, Users, Target, Eye, Loader2 } from 'lucide-react'
 import { useDashboardStats } from '@/lib/hooks/use-supabase'
 import { useSupabaseQuery } from '@/lib/hooks/use-supabase'
@@ -13,16 +14,17 @@ interface RecentContact {
   created_at: string
 }
 
-function StatCard({ label, value, icon: Icon, description, accent }: {
+function StatCard({ label, value, icon: Icon, description, accent, href }: {
   label: string
   value: string | number
   icon: React.ComponentType<{ className?: string }>
   description: string
   accent?: string
+  href?: string
 }) {
   const iconColor = accent ?? 'text-primary'
-  return (
-    <div className="rounded-lg border border-border bg-card p-6 shadow-sm">
+  const content = (
+    <div className={`rounded-lg border border-border bg-card p-6 shadow-sm${href ? ' hover:border-primary/40 transition-colors' : ''}`}>
       <div className="flex items-center justify-between">
         <p className="text-sm font-medium text-muted-foreground">{label}</p>
         <div className={`rounded-md p-1.5 ${accent ? accent + '/10 ' + iconColor : 'bg-primary/10 text-primary'}`}>
@@ -33,17 +35,20 @@ function StatCard({ label, value, icon: Icon, description, accent }: {
       <p className="mt-1 text-xs text-muted-foreground">{description}</p>
     </div>
   )
+  if (href) return <Link to={href}>{content}</Link>
+  return content
 }
 
-function TierBar({ label, count, total, color }: {
+function TierBar({ label, count, total, color, href }: {
   label: string
   count: number
   total: number
   color: string
+  href?: string
 }) {
   const pct = total > 0 ? (count / total) * 100 : 0
-  return (
-    <div className="flex items-center gap-3">
+  const content = (
+    <div className={`flex items-center gap-3${href ? ' hover:bg-muted/50 -mx-2 px-2 py-1 rounded-md transition-colors cursor-pointer' : ''}`}>
       <span className="w-16 text-sm font-medium">{label}</span>
       <div className="flex-1 h-2 rounded-full bg-muted overflow-hidden">
         <div className={`h-full rounded-full ${color}`} style={{ width: `${pct}%` }} />
@@ -51,6 +56,8 @@ function TierBar({ label, count, total, color }: {
       <span className="w-16 text-right text-sm text-muted-foreground">{count.toLocaleString('fr-FR')}</span>
     </div>
   )
+  if (href) return <Link to={href}>{content}</Link>
+  return content
 }
 
 export default function Dashboard() {
@@ -97,7 +104,7 @@ export default function Dashboard() {
 
   const s = stats ?? {
     total_entreprises: 0, total_contacts: 0, total_notifications: 0,
-    deals_en_cours: 0, contacts_a_contacter: 0, contacts_a_surveiller: 0,
+    deals_en_cours: 0, contacts_a_contacter: 0, contacts_contactes: 0,
     tier1: 0, tier2: 0, tier3: 0,
   }
 
@@ -115,6 +122,7 @@ export default function Dashboard() {
           icon={Building2}
           description="Total en base"
           accent="text-violet-600 bg-violet-600"
+          href="/entreprises"
         />
         <StatCard
           label="Contacts"
@@ -122,20 +130,23 @@ export default function Dashboard() {
           icon={Users}
           description="Contacts importés"
           accent="text-sky-500 bg-sky-500"
+          href="/contacts"
         />
         <StatCard
-          label="A contacter"
+          label="À contacter"
           value={s.contacts_a_contacter.toLocaleString('fr-FR')}
           icon={Target}
           description="Contacts prioritaires"
           accent="text-emerald-500 bg-emerald-500"
+          href="/contacts?statut=À contacter"
         />
         <StatCard
-          label="A surveiller"
-          value={s.contacts_a_surveiller.toLocaleString('fr-FR')}
+          label="Contacté"
+          value={s.contacts_contactes.toLocaleString('fr-FR')}
           icon={Eye}
-          description="En observation"
+          description="Activement démarchés"
           accent="text-amber-500 bg-amber-500"
+          href="/contacts?statut=Contacté"
         />
       </div>
 
@@ -143,14 +154,15 @@ export default function Dashboard() {
         <div className="rounded-lg border border-border bg-card p-6 shadow-sm">
           <h2 className="text-lg font-semibold mb-4">Répartition par Tier</h2>
           <div className="space-y-3">
-            <TierBar label="Tier 1" count={s.tier1} total={s.total_entreprises} color="bg-emerald-500" />
-            <TierBar label="Tier 2" count={s.tier2} total={s.total_entreprises} color="bg-amber-500" />
-            <TierBar label="Tier 3" count={s.tier3} total={s.total_entreprises} color="bg-slate-400" />
+            <TierBar label="Tier 1" count={s.tier1} total={s.total_entreprises} color="bg-emerald-500" href="/entreprises?tier=Tier 1" />
+            <TierBar label="Tier 2" count={s.tier2} total={s.total_entreprises} color="bg-amber-500" href="/entreprises?tier=Tier 2" />
+            <TierBar label="Tier 3" count={s.tier3} total={s.total_entreprises} color="bg-slate-400" href="/entreprises?tier=Tier 3" />
             <TierBar
-              label="Non classé"
+              label="Hors-Tier"
               count={s.total_entreprises - s.tier1 - s.tier2 - s.tier3}
               total={s.total_entreprises}
               color="bg-muted-foreground/30"
+              href="/entreprises?tier=Hors-Tier"
             />
           </div>
         </div>
@@ -158,14 +170,14 @@ export default function Dashboard() {
         <div className="rounded-lg border border-border bg-card p-6 shadow-sm">
           <h2 className="text-lg font-semibold mb-4">Pipeline</h2>
           <div className="grid grid-cols-2 gap-4">
-            <div className="rounded-md bg-muted/50 p-4 text-center">
+            <Link to="/entreprises?statut=Deal en cours" className="rounded-md bg-muted/50 p-4 text-center hover:bg-muted transition-colors">
               <p className="text-2xl font-bold">{s.deals_en_cours}</p>
               <p className="text-xs text-muted-foreground mt-1">Deals en cours</p>
-            </div>
-            <div className="rounded-md bg-muted/50 p-4 text-center">
+            </Link>
+            <Link to="/notifications" className="rounded-md bg-muted/50 p-4 text-center hover:bg-muted transition-colors">
               <p className="text-2xl font-bold">{s.total_notifications}</p>
               <p className="text-xs text-muted-foreground mt-1">Notifications</p>
-            </div>
+            </Link>
           </div>
         </div>
       </div>
@@ -175,10 +187,14 @@ export default function Dashboard() {
           <h2 className="text-lg font-semibold mb-4">Répartition par Secteur</h2>
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
             {secteurStats.slice(0, 14).map(s => (
-              <div key={s.secteur_digi} className="flex items-center justify-between rounded-md bg-muted/50 px-3 py-2">
+              <Link
+                key={s.secteur_digi}
+                to={`/entreprises?secteur=${encodeURIComponent(s.secteur_digi)}`}
+                className="flex items-center justify-between rounded-md bg-muted/50 px-3 py-2 hover:bg-muted transition-colors"
+              >
                 <span className="text-sm truncate">{s.secteur_digi}</span>
                 <span className="text-sm font-medium text-muted-foreground ml-2">{s.count.toLocaleString('fr-FR')}</span>
-              </div>
+              </Link>
             ))}
           </div>
         </div>
@@ -189,7 +205,11 @@ export default function Dashboard() {
         {recentContacts && recentContacts.length > 0 ? (
           <div className="divide-y divide-border">
             {recentContacts.map(c => (
-              <div key={c.id} className="flex items-center justify-between py-3 first:pt-0 last:pb-0">
+              <Link
+                key={c.id}
+                to={`/contacts?contact=${c.id}`}
+                className="flex items-center justify-between py-3 first:pt-0 last:pb-0 -mx-2 px-2 rounded-md hover:bg-muted/50 transition-colors"
+              >
                 <div className="min-w-0">
                   <p className="text-sm font-medium truncate">
                     {c.first_name} {c.last_name}
@@ -208,7 +228,7 @@ export default function Dashboard() {
                     </span>
                   )}
                 </div>
-              </div>
+              </Link>
             ))}
           </div>
         ) : (

@@ -7,17 +7,24 @@ import {
   Upload,
   Menu,
   X,
+  LogOut,
 } from 'lucide-react'
+import { DigiIcon } from '@/components/icons/DigiIcon'
+import { useAuth, isAdminOrAM } from '@/lib/auth'
 
-const navItems = [
-  { to: '/', label: 'Dashboard', icon: LayoutDashboard },
-  { to: '/entreprises', label: 'Entreprises', icon: Building2 },
-  { to: '/contacts', label: 'Contacts', icon: Users },
-  { to: '/import', label: 'Import', icon: Upload },
+const allNavItems = [
+  { to: '/', label: 'Dashboard', icon: LayoutDashboard, restricted: false },
+  { to: '/entreprises', label: 'Entreprises', icon: Building2, restricted: true },
+  { to: '/contacts', label: 'Contacts', icon: Users, restricted: true },
+  { to: '/membres', label: 'Membres Digi', icon: DigiIcon, restricted: false },
+  { to: '/import', label: 'Import', icon: Upload, restricted: false },
 ]
 
 export function MobileNav() {
   const [open, setOpen] = useState(false)
+  const { membre, signOut } = useAuth()
+  const fullAccess = isAdminOrAM(membre?.role)
+  const navItems = fullAccess ? allNavItems : allNavItems.filter(item => item.restricted)
 
   return (
     <div className="md:hidden">
@@ -52,6 +59,13 @@ export function MobileNav() {
               {item.label}
             </NavLink>
           ))}
+          <button
+            onClick={() => { signOut(); setOpen(false) }}
+            className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-muted-foreground hover:bg-accent/60 w-full"
+          >
+            <LogOut className="h-4 w-4" />
+            Se deconnecter
+          </button>
         </nav>
       )}
     </div>

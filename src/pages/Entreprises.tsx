@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { Building2, Search, Loader2, ChevronLeft, ChevronRight, ExternalLink } from 'lucide-react'
+import { Link, useSearchParams } from 'react-router-dom'
+import { Building2, Search, Loader2, ChevronLeft, ChevronRight, ExternalLink, Users } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useSupabaseQuery } from '@/lib/hooks/use-supabase'
 import { Badge } from '@/components/ui/badge'
@@ -12,6 +13,10 @@ import {
 } from '@/components/ui/select'
 import { EntrepriseDrawer } from '@/components/entreprises/EntrepriseDrawer'
 import type { Entreprise, Tier, StatutEntreprise } from '@/lib/types'
+
+type EntrepriseWithParent = Entreprise & {
+  parent: { id: string; company_name: string } | null
+}
 
 const PAGE_SIZE = 50
 
@@ -26,7 +31,6 @@ const STATUT_COLORS: Record<string, string> = {
   'Qualifiée': 'default',
   'A démarcher': 'secondary',
   'En cours': 'outline',
-  'Bon Vivant': 'ghost',
   'Actuellement client': 'default',
   'Deal en cours': 'destructive',
 }
@@ -42,11 +46,12 @@ function StatutBadge({ statut }: { statut: StatutEntreprise | null }) {
 }
 
 export default function Entreprises() {
+  const [searchParams] = useSearchParams()
   const [page, setPage] = useState(0)
   const [search, setSearch] = useState('')
-  const [tierFilter, setTierFilter] = useState<string>('all')
-  const [statutFilter, setStatutFilter] = useState<string>('all')
-  const [secteurFilter, setSecteurFilter] = useState<string>('all')
+  const [tierFilter, setTierFilter] = useState<string>(searchParams.get('tier') ?? 'all')
+  const [statutFilter, setStatutFilter] = useState<string>(searchParams.get('statut') ?? 'all')
+  const [secteurFilter, setSecteurFilter] = useState<string>(searchParams.get('secteur') ?? 'all')
   const [selected, setSelected] = useState<Entreprise | null>(null)
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -59,9 +64,9 @@ export default function Entreprises() {
     return q
   }
 
-  const { data: entreprises, loading, refetch } = useSupabaseQuery<Entreprise[]>(
+  const { data: entreprises, loading, refetch } = useSupabaseQuery<EntrepriseWithParent[]>(
     () => applyFilters(
-      supabase.from('entreprises').select('*').order('company_name', { ascending: true })
+      supabase.from('entreprises').select('*, parent:parent_company_id(id, company_name)').order('company_name', { ascending: true })
     ).range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1),
     [page, tierFilter, statutFilter, secteurFilter, search]
   )
@@ -122,7 +127,6 @@ export default function Entreprises() {
             <SelectItem value="Qualifiée">Qualifiée</SelectItem>
             <SelectItem value="A démarcher">A démarcher</SelectItem>
             <SelectItem value="En cours">En cours</SelectItem>
-            <SelectItem value="Bon Vivant">Bon Vivant</SelectItem>
             <SelectItem value="Actuellement client">Actuellement client</SelectItem>
             <SelectItem value="Deal en cours">Deal en cours</SelectItem>
           </SelectContent>
@@ -165,41 +169,48 @@ export default function Entreprises() {
         </div>
       ) : (
         <>
-          <div className="rounded-lg border border-border bg-card shadow-sm">
-            <Table>
+          <div className="rounded-lg border border-border bg-card shadow-sm overflow-hidden">
+            <Table className="table-fixed">
               <TableHeader>
                 <TableRow>
-                  <TableHead>Entreprise</TableHead>
-                  <TableHead>Localisation</TableHead>
-                  <TableHead>Taille</TableHead>
-                  <TableHead>Secteur</TableHead>
-                  <TableHead>Tier</TableHead>
-                  <TableHead>Statut</TableHead>
-                  <TableHead>Score ICP</TableHead>
+                  <TableHead className="w-[22%]">Entreprise</TableHead>
+                  <TableHead className="w-[16%]">Localisation</TableHead>
+                  <TableHead className="w-[10%]">Taille</TableHead>
+                  <TableHead className="w-[14%]">Secteur</TableHead>
+                  <TableHead className="w-[8%]">Tier</TableHead>
+                  <TableHead className="w-[10%]">Statut</TableHead>
+                  <TableHead className="w-[6%]">ICP</TableHead>
+                  <TableHead className="w-[8%]"></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {entreprises.map(e => (
                   <TableRow key={e.id} className="cursor-pointer" onClick={() => setSelected(e)}>
-                    <TableCell>
+                    <TableCell className="max-w-[250px]">
                       <div className="flex items-center gap-2">
-                        <span className="font-medium">{e.company_name}</span>
+                        <span className="font-medium truncate">{e.company_name}</span>
                         {e.company_id_linkedin && (
                           <a
                             href={`https://www.linkedin.com/company/${e.company_id_linkedin}`}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="text-muted-foreground hover:text-foreground"
+                            onClick={(ev) => ev.stopPropagation()}
                           >
                             <ExternalLink className="h-3 w-3" />
                           </a>
                         )}
                       </div>
+                      {e.parent ? (
+                        <p className="text-xs text-muted-foreground truncate">Filiale de {e.parent.company_name}</p>
+                      ) : e.is_subsidiary ? (
+                        <p className="text-xs text-amber-500">Filiale non rattachée</p>
+                      ) : null}
                       {e.company_domain && (
                         <p className="text-xs text-muted-foreground">{e.company_domain}</p>
                       )}
                     </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
+                    <TableCell className="text-sm text-muted-foreground max-w-[180px] truncate">
                       {e.company_location ?? '—'}
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
@@ -220,11 +231,19 @@ export default function Entreprises() {
                     <TableCell><TierBadge tier={e.tier} /></TableCell>
                     <TableCell><StatutBadge statut={e.statut_entreprise} /></TableCell>
                     <TableCell>
-                      {e.scoring_icp > 0 ? (
-                        <span className="text-sm font-medium">{e.scoring_icp}/100</span>
-                      ) : (
-                        <span className="text-xs text-muted-foreground">—</span>
-                      )}
+                      <Badge variant={e.icp ? 'default' : 'outline'}>
+                        {e.icp ? 'Oui' : 'Non'}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <Link
+                        to={`/contacts?entreprise=${e.id}&nom=${encodeURIComponent(e.company_name)}`}
+                        onClick={(ev) => ev.stopPropagation()}
+                        className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
+                      >
+                        <Users className="h-3.5 w-3.5" />
+                        Contacts
+                      </Link>
                     </TableCell>
                   </TableRow>
                 ))}

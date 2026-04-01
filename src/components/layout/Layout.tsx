@@ -1,10 +1,11 @@
 import { Outlet } from 'react-router-dom'
 import { Sidebar } from './Sidebar'
 import { MobileNav } from './MobileNav'
+import { FeedbackButton } from '@/components/FeedbackButton'
 
 export function Layout() {
   return (
-    <div className="min-h-screen bg-background">
+    <div className="h-full min-h-screen bg-background">
       <Sidebar />
       <MobileNav />
       <main className="md:pl-64">
@@ -12,6 +13,7 @@ export function Layout() {
           <Outlet />
         </div>
       </main>
+      <FeedbackButton />
     </div>
   )
 }
