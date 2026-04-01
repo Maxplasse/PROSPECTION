@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { Building2, Search, Loader2, ChevronLeft, ChevronRight, ExternalLink, Users, FilterX, Star } from 'lucide-react'
+import { Building2, Search, Loader2, ChevronLeft, ChevronRight, ExternalLink, Users, FilterX } from 'lucide-react'
+import { DigiIcon } from '@/components/icons/DigiIcon'
 import { supabase } from '@/lib/supabase'
 import { useSupabaseQuery } from '@/lib/hooks/use-supabase'
 import { Badge } from '@/components/ui/badge'
@@ -228,7 +229,7 @@ export default function Entreprises() {
                       <div className="flex items-center gap-2">
                         <span className="font-medium truncate">{e.company_name}</span>
                         {e.is_digi_client && (
-                          <span title="Client Digi"><Star className="h-3.5 w-3.5 text-amber-500 fill-amber-500 shrink-0" /></span>
+                          <span title="Client Digi"><DigiIcon className="h-4 w-4 shrink-0" /></span>
                         )}
                         {e.company_id_linkedin && (
                           <a
