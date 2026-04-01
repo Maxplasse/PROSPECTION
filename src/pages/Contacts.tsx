@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect } from 'react'
 import { useSearchParams, Link } from 'react-router-dom'
 import { Users, Search, Loader2, ChevronLeft, ChevronRight, X, Building2, FilterX } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
@@ -165,16 +165,24 @@ export default function Contacts() {
     [hierarchieFilter, personaFilter, statutFilter, entrepriseLinkFilter, search, entrepriseFilter]
   )
 
-  // Count contacts per entreprise for the current page
-  const entrepriseContactCounts = useMemo(() => {
-    if (!contacts) return new Map<string, number>()
-    const counts = new Map<string, number>()
-    for (const c of contacts) {
-      if (c.entreprise_id) {
-        counts.set(c.entreprise_id, (counts.get(c.entreprise_id) ?? 0) + 1)
-      }
-    }
-    return counts
+  // Fetch real contact counts per entreprise from DB
+  const [entrepriseContactCounts, setEntrepriseContactCounts] = useState<Map<string, number>>(new Map())
+  useEffect(() => {
+    if (!contacts || contacts.length === 0) return
+    const entIds = [...new Set(contacts.map(c => c.entreprise_id).filter(Boolean))] as string[]
+    if (entIds.length === 0) return
+
+    supabase
+      .from('contacts')
+      .select('entreprise_id')
+      .in('entreprise_id', entIds)
+      .then(({ data }) => {
+        const counts = new Map<string, number>()
+        data?.forEach(c => {
+          if (c.entreprise_id) counts.set(c.entreprise_id, (counts.get(c.entreprise_id) ?? 0) + 1)
+        })
+        setEntrepriseContactCounts(counts)
+      })
   }, [contacts])
 
   const totalCount = countResult?.[0]?.count ?? 0
@@ -329,7 +337,7 @@ export default function Contacts() {
               </TableHeader>
               <TableBody>
                 {contacts.map(c => {
-                  const companyCount = c.entreprise_id ? (entrepriseContactCounts.get(c.entreprise_id) ?? 0) : 0
+                  const companyCount = c.entreprise_id ? (entrepriseContactCounts.get(c.entreprise_id) ?? 0) : 0;
                   return (
                     <TableRow key={c.id} className="cursor-pointer" onClick={() => setSelected(c)}>
                       <TableCell>
@@ -343,13 +351,13 @@ export default function Contacts() {
                       <TableCell>
                         <div className="flex items-center gap-1.5">
                           <p className="text-sm truncate max-w-[140px]">{c.company_name ?? '—'}</p>
-                          {c.entreprise_id && companyCount > 1 && (
+                          {c.entreprise_id && companyCount > 0 && (
                             <Link
                               to={`/contacts?entreprise=${c.entreprise_id}&nom=${encodeURIComponent(c.company_name ?? '')}`}
                               onClick={e => e.stopPropagation()}
-                              title={`${companyCount} contacts dans cette entreprise`}
+                              title={`${companyCount} contact${companyCount > 1 ? 's' : ''} dans cette entreprise — cliquer pour voir`}
                             >
-                              <Badge variant="outline" className="text-[10px] px-1.5 py-0 gap-0.5">
+                              <Badge variant={companyCount >= 3 ? 'default' : 'outline'} className="text-[10px] px-1.5 py-0 gap-0.5">
                                 <Building2 className="h-2.5 w-2.5" />
                                 {companyCount}
                               </Badge>
