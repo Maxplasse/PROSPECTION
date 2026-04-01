@@ -117,8 +117,9 @@ export default function Contacts() {
       if (statutFilter !== 'all') query = query.eq('statut_contact', statutFilter)
       if (hierarchieFilter !== 'all') query = query.eq('hierarchie', hierarchieFilter)
       if (personaFilter !== 'all') query = query.eq('persona', personaFilter)
-      if (entrepriseLinkFilter === 'sans') query = query.is('entreprise_id', null)
-      else if (entrepriseLinkFilter === 'avec') query = query.not('entreprise_id', 'is', null)
+      if (entrepriseLinkFilter === 'sans') query = query.is('company_name', null)
+      else if (entrepriseLinkFilter === 'avec') query = query.not('company_name', 'is', null)
+      else if (entrepriseLinkFilter === 'non-rattache') query = query.not('company_name', 'is', null).is('entreprise_id', null)
       if (search.trim()) {
         query = query.or(`first_name.ilike.%${search.trim()}%,last_name.ilike.%${search.trim()}%,company_name.ilike.%${search.trim()}%`)
       }
@@ -138,8 +139,9 @@ export default function Contacts() {
       if (statutFilter !== 'all') query = query.eq('statut_contact', statutFilter)
       if (hierarchieFilter !== 'all') query = query.eq('hierarchie', hierarchieFilter)
       if (personaFilter !== 'all') query = query.eq('persona', personaFilter)
-      if (entrepriseLinkFilter === 'sans') query = query.is('entreprise_id', null)
-      else if (entrepriseLinkFilter === 'avec') query = query.not('entreprise_id', 'is', null)
+      if (entrepriseLinkFilter === 'sans') query = query.is('company_name', null)
+      else if (entrepriseLinkFilter === 'avec') query = query.not('company_name', 'is', null)
+      else if (entrepriseLinkFilter === 'non-rattache') query = query.not('company_name', 'is', null).is('entreprise_id', null)
       if (search.trim()) {
         query = query.or(`first_name.ilike.%${search.trim()}%,last_name.ilike.%${search.trim()}%,company_name.ilike.%${search.trim()}%`)
       }
@@ -246,11 +248,17 @@ export default function Contacts() {
 
         <Select value={entrepriseLinkFilter} onValueChange={(v) => { setEntrepriseLinkFilter(v as string); setPage(0) }}>
           <SelectTrigger>
-            <SelectValue>{entrepriseLinkFilter === 'all' ? 'Toute entreprise' : entrepriseLinkFilter === 'sans' ? 'Sans entreprise' : 'Avec entreprise'}</SelectValue>
+            <SelectValue>
+              {entrepriseLinkFilter === 'all' ? 'Toute entreprise'
+                : entrepriseLinkFilter === 'sans' ? 'Sans entreprise'
+                : entrepriseLinkFilter === 'non-rattache' ? 'Non rattachée'
+                : 'Avec entreprise'}
+            </SelectValue>
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">Toute entreprise</SelectItem>
             <SelectItem value="sans">Sans entreprise</SelectItem>
+            <SelectItem value="non-rattache">Non rattachée</SelectItem>
             <SelectItem value="avec">Avec entreprise</SelectItem>
           </SelectContent>
         </Select>
