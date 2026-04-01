@@ -106,6 +106,7 @@ export interface Entreprise {
   company_specialties: string | null
   tier: Tier | null
   statut_entreprise: StatutEntreprise | null
+  is_digi_client: boolean
   source_acquisition: string | null
   created_at: string
   updated_at: string

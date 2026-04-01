@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { Building2, Search, Loader2, ChevronLeft, ChevronRight, ExternalLink, Users } from 'lucide-react'
+import { Building2, Search, Loader2, ChevronLeft, ChevronRight, ExternalLink, Users, FilterX, Star } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useSupabaseQuery } from '@/lib/hooks/use-supabase'
 import { Badge } from '@/components/ui/badge'
@@ -52,7 +52,20 @@ export default function Entreprises() {
   const [tierFilter, setTierFilter] = useState<string>(searchParams.get('tier') ?? 'all')
   const [statutFilter, setStatutFilter] = useState<string>(searchParams.get('statut') ?? 'all')
   const [secteurFilter, setSecteurFilter] = useState<string>(searchParams.get('secteur') ?? 'all')
+  const [clientFilter, setClientFilter] = useState<string>('all')
   const [selected, setSelected] = useState<Entreprise | null>(null)
+
+  const hasActiveFilters = tierFilter !== 'all' || statutFilter !== 'all' || secteurFilter !== 'all' || clientFilter !== 'all' || search.trim() !== ''
+  const activeClass = 'border-primary bg-primary/10 text-primary'
+
+  function clearAllFilters() {
+    setTierFilter('all')
+    setStatutFilter('all')
+    setSecteurFilter('all')
+    setClientFilter('all')
+    setSearch('')
+    setPage(0)
+  }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const applyFilters = (query: any) => {
@@ -60,6 +73,8 @@ export default function Entreprises() {
     if (tierFilter !== 'all') q = q.eq('tier', tierFilter)
     if (statutFilter !== 'all') q = q.eq('statut_entreprise', statutFilter)
     if (secteurFilter !== 'all') q = q.eq('secteur_digi', secteurFilter)
+    if (clientFilter === 'oui') q = q.eq('is_digi_client', true)
+    else if (clientFilter === 'non') q = q.eq('is_digi_client', false)
     if (search.trim()) q = q.ilike('company_name', `%${search.trim()}%`)
     return q
   }
@@ -68,7 +83,7 @@ export default function Entreprises() {
     () => applyFilters(
       supabase.from('entreprises').select('*, parent:parent_company_id(id, company_name)').order('company_name', { ascending: true })
     ).range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1),
-    [page, tierFilter, statutFilter, secteurFilter, search]
+    [page, tierFilter, statutFilter, secteurFilter, clientFilter, search]
   )
 
   const { data: countResult } = useSupabaseQuery<{ count: number }[]>(
@@ -106,7 +121,7 @@ export default function Entreprises() {
         </div>
 
         <Select value={tierFilter} onValueChange={(v) => { setTierFilter(v as string); setPage(0) }}>
-          <SelectTrigger>
+          <SelectTrigger className={tierFilter !== 'all' ? activeClass : ''}>
             <SelectValue>{tierFilter === 'all' ? 'Tous les tiers' : tierFilter}</SelectValue>
           </SelectTrigger>
           <SelectContent>
@@ -119,7 +134,7 @@ export default function Entreprises() {
         </Select>
 
         <Select value={statutFilter} onValueChange={(v) => { setStatutFilter(v as string); setPage(0) }}>
-          <SelectTrigger>
+          <SelectTrigger className={statutFilter !== 'all' ? activeClass : ''}>
             <SelectValue>{statutFilter === 'all' ? 'Tous les statuts' : statutFilter}</SelectValue>
           </SelectTrigger>
           <SelectContent>
@@ -133,7 +148,7 @@ export default function Entreprises() {
         </Select>
 
         <Select value={secteurFilter} onValueChange={(v) => { setSecteurFilter(v as string); setPage(0) }}>
-          <SelectTrigger>
+          <SelectTrigger className={secteurFilter !== 'all' ? activeClass : ''}>
             <SelectValue>{secteurFilter === 'all' ? 'Tous les secteurs' : secteurFilter}</SelectValue>
           </SelectTrigger>
           <SelectContent>
@@ -153,6 +168,29 @@ export default function Entreprises() {
             <SelectItem value="e-commerce">e-commerce</SelectItem>
           </SelectContent>
         </Select>
+
+        <Select value={clientFilter} onValueChange={(v) => { setClientFilter(v as string); setPage(0) }}>
+          <SelectTrigger className={clientFilter !== 'all' ? activeClass : ''}>
+            <SelectValue>{clientFilter === 'all' ? 'Client Digi' : clientFilter === 'oui' ? 'Client Digi' : 'Non client'}</SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Tous</SelectItem>
+            <SelectItem value="oui">Client Digi</SelectItem>
+            <SelectItem value="non">Non client</SelectItem>
+          </SelectContent>
+        </Select>
+
+        {hasActiveFilters && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={clearAllFilters}
+            className="text-muted-foreground hover:text-foreground"
+          >
+            <FilterX className="h-4 w-4 mr-1.5" />
+            Effacer
+          </Button>
+        )}
       </div>
 
       {loading ? (
@@ -189,6 +227,9 @@ export default function Entreprises() {
                     <TableCell className="max-w-[250px]">
                       <div className="flex items-center gap-2">
                         <span className="font-medium truncate">{e.company_name}</span>
+                        {e.is_digi_client && (
+                          <span title="Client Digi"><Star className="h-3.5 w-3.5 text-amber-500 fill-amber-500 shrink-0" /></span>
+                        )}
                         {e.company_id_linkedin && (
                           <a
                             href={`https://www.linkedin.com/company/${e.company_id_linkedin}`}
