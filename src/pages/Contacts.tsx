@@ -85,6 +85,7 @@ export default function Contacts() {
   const [hierarchieFilter, setHierarchieFilter] = useState<string>('all')
   const [personaFilter, setPersonaFilter] = useState<string>('all')
   const [statutFilter, setStatutFilter] = useState<string>(statutParam ?? 'all')
+  const [entrepriseLinkFilter, setEntrepriseLinkFilter] = useState<string>('all')
   const [sortBy, setSortBy] = useState<string>('relations')
   const [selected, setSelected] = useState<ContactRow | null>(null)
 
@@ -116,13 +117,15 @@ export default function Contacts() {
       if (statutFilter !== 'all') query = query.eq('statut_contact', statutFilter)
       if (hierarchieFilter !== 'all') query = query.eq('hierarchie', hierarchieFilter)
       if (personaFilter !== 'all') query = query.eq('persona', personaFilter)
+      if (entrepriseLinkFilter === 'sans') query = query.is('entreprise_id', null)
+      else if (entrepriseLinkFilter === 'avec') query = query.not('entreprise_id', 'is', null)
       if (search.trim()) {
         query = query.or(`first_name.ilike.%${search.trim()}%,last_name.ilike.%${search.trim()}%,company_name.ilike.%${search.trim()}%`)
       }
 
       return query.range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1)
     },
-    [page, hierarchieFilter, personaFilter, statutFilter, search, sortBy, entrepriseFilter]
+    [page, hierarchieFilter, personaFilter, statutFilter, entrepriseLinkFilter, search, sortBy, entrepriseFilter]
   )
 
   const { data: countResult } = useSupabaseQuery<{ count: number }[]>(
@@ -135,6 +138,8 @@ export default function Contacts() {
       if (statutFilter !== 'all') query = query.eq('statut_contact', statutFilter)
       if (hierarchieFilter !== 'all') query = query.eq('hierarchie', hierarchieFilter)
       if (personaFilter !== 'all') query = query.eq('persona', personaFilter)
+      if (entrepriseLinkFilter === 'sans') query = query.is('entreprise_id', null)
+      else if (entrepriseLinkFilter === 'avec') query = query.not('entreprise_id', 'is', null)
       if (search.trim()) {
         query = query.or(`first_name.ilike.%${search.trim()}%,last_name.ilike.%${search.trim()}%,company_name.ilike.%${search.trim()}%`)
       }
@@ -142,7 +147,7 @@ export default function Contacts() {
       const res = await query
       return { data: [{ count: res.count ?? 0 }], error: res.error }
     },
-    [hierarchieFilter, personaFilter, statutFilter, search, entrepriseFilter]
+    [hierarchieFilter, personaFilter, statutFilter, entrepriseLinkFilter, search, entrepriseFilter]
   )
 
   // Count contacts per entreprise for the current page
@@ -236,6 +241,17 @@ export default function Contacts() {
             <SelectItem value="Pas intéressé">Pas intéressé</SelectItem>
             <SelectItem value="En attente">En attente</SelectItem>
             <SelectItem value="Déjà client">Déjà client</SelectItem>
+          </SelectContent>
+        </Select>
+
+        <Select value={entrepriseLinkFilter} onValueChange={(v) => { setEntrepriseLinkFilter(v as string); setPage(0) }}>
+          <SelectTrigger>
+            <SelectValue>{entrepriseLinkFilter === 'all' ? 'Toute entreprise' : entrepriseLinkFilter === 'sans' ? 'Sans entreprise' : 'Avec entreprise'}</SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Toute entreprise</SelectItem>
+            <SelectItem value="sans">Sans entreprise</SelectItem>
+            <SelectItem value="avec">Avec entreprise</SelectItem>
           </SelectContent>
         </Select>
 
