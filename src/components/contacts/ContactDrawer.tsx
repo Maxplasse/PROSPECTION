@@ -240,8 +240,51 @@ export function ContactDrawer({ contact, onClose, onSaved }: Props) {
       .eq('id', contact.id)
 
     await Promise.all([contactPromise, ...relationPromises])
+
+    // Auto-update entreprise status based on best contact status
+    const resolvedEntrepriseId = entrepriseId || contact.entreprise_id
+    if (resolvedEntrepriseId && statut) {
+      await updateEntrepriseStatut(resolvedEntrepriseId)
+    }
+
     setSaving(false)
     onSaved()
+  }
+
+  async function updateEntrepriseStatut(entId: string) {
+    // Fetch all contacts of this entreprise to find the most advanced status
+    const { data: allContacts } = await supabase
+      .from('contacts')
+      .select('statut_contact')
+      .eq('entreprise_id', entId)
+
+    if (!allContacts || allContacts.length === 0) return
+
+    // Priority order (highest wins)
+    const STATUT_PRIORITY: Record<string, { priority: number; entrepriseStatut: string }> = {
+      'Déjà client':    { priority: 4, entrepriseStatut: 'Actuellement client' },
+      'Intéressé':      { priority: 3, entrepriseStatut: 'Deal en cours' },
+      'Contacté':       { priority: 2, entrepriseStatut: 'En cours' },
+      'À contacter':    { priority: 1, entrepriseStatut: 'A démarcher' },
+    }
+
+    let bestPriority = 0
+    let bestEntrepriseStatut: string | null = null
+
+    for (const c of allContacts) {
+      const mapping = STATUT_PRIORITY[c.statut_contact as string]
+      if (mapping && mapping.priority > bestPriority) {
+        bestPriority = mapping.priority
+        bestEntrepriseStatut = mapping.entrepriseStatut
+      }
+    }
+
+    if (bestEntrepriseStatut) {
+      await supabase
+        .from('entreprises')
+        .update({ statut_entreprise: bestEntrepriseStatut })
+        .eq('id', entId)
+    }
   }
 
   const scoreColor = previewScore.total >= 70 ? 'text-emerald-600' :
