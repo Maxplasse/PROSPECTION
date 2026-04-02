@@ -190,7 +190,11 @@ export default function Contacts() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Contacts</h1>
         <p className="text-muted-foreground">
-          {totalCount.toLocaleString('fr-FR')} contacts qualifiés avec scoring.
+          {countResult ? (
+            <>{totalCount.toLocaleString('fr-FR')} contacts qualifiés avec scoring.</>
+          ) : (
+            <span className="inline-block h-4 w-48 animate-pulse rounded bg-muted" />
+          )}
         </p>
       </div>
 

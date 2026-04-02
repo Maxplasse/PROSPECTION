@@ -65,39 +65,35 @@ export default function Membres() {
   async function loadOwnerStats() {
     setLoadingOwner(true)
 
-    // Fetch membres
-    const { data: membresData } = await supabase
-      .from('membres_digilityx')
-      .select('id, full_name, slack_user_id')
-      .order('full_name')
+    const [{ data: membresData }, { data: rpcData }] = await Promise.all([
+      supabase.from('membres_digilityx').select('id, full_name, slack_user_id').order('full_name'),
+      supabase.rpc('get_owner_contact_stats'),
+    ])
     const allM = membresData ?? []
     setMembresCount(allM.length)
     setAllMembres(allM)
 
-    // Fetch ALL contacts with owner + statut (paginated to avoid 1000 limit)
-    const allContacts: { owner_membre_id: string | null; statut_contact: string | null }[] = []
-    let offset = 0
-    const PAGE = 1000
-    while (true) {
-      const { data } = await supabase
-        .from('contacts')
-        .select('owner_membre_id, statut_contact')
-        .not('owner_membre_id', 'is', null)
-        .range(offset, offset + PAGE - 1)
-      if (!data || data.length === 0) break
-      allContacts.push(...data)
-      if (data.length < PAGE) break
-      offset += PAGE
+    // Build lookup: membre_id -> { statut -> count }
+    const lookup = new Map<string, Record<string, number>>()
+    for (const row of (rpcData ?? []) as { owner_membre_id: string; statut_contact: string | null; cnt: number }[]) {
+      if (!lookup.has(row.owner_membre_id)) lookup.set(row.owner_membre_id, {})
+      const key = row.statut_contact ?? '(vide)'
+      lookup.get(row.owner_membre_id)![key] = Number(row.cnt)
     }
 
-    // Aggregate
     const stats: MembreStats[] = allM.map(m => {
-      const mine = allContacts.filter(c => c.owner_membre_id === m.id)
+      const counts = lookup.get(m.id) ?? {}
       const byStatut: Record<string, number> = {}
+      let total = 0
       for (const s of STATUTS_CONTACT) {
-        byStatut[s] = mine.filter(c => c.statut_contact === s).length
+        byStatut[s] = counts[s] ?? 0
+        total += byStatut[s]
       }
-      return { ...m, total: mine.length, byStatut }
+      // Add counts for statuts not in our list
+      for (const [k, v] of Object.entries(counts)) {
+        if (!STATUTS_CONTACT.includes(k)) total += v
+      }
+      return { ...m, total, byStatut }
     })
 
     setOwnerStats(stats.sort((a, b) => b.total - a.total))
@@ -107,35 +103,31 @@ export default function Membres() {
   async function loadAMStats() {
     setLoadingAM(true)
 
-    const { data: membresData } = await supabase
-      .from('membres_digilityx')
-      .select('id, full_name')
-      .order('full_name')
+    const [{ data: membresData }, { data: rpcData }] = await Promise.all([
+      supabase.from('membres_digilityx').select('id, full_name').order('full_name'),
+      supabase.rpc('get_am_entreprise_stats'),
+    ])
     const allM2 = membresData ?? []
 
-    // Fetch ALL entreprises with AM + statut (paginated)
-    const allEntreprises: { account_manager_id: string | null; statut_entreprise: string | null }[] = []
-    let offset = 0
-    const PAGE = 1000
-    while (true) {
-      const { data } = await supabase
-        .from('entreprises')
-        .select('account_manager_id, statut_entreprise')
-        .not('account_manager_id', 'is', null)
-        .range(offset, offset + PAGE - 1)
-      if (!data || data.length === 0) break
-      allEntreprises.push(...data)
-      if (data.length < PAGE) break
-      offset += PAGE
+    const lookup = new Map<string, Record<string, number>>()
+    for (const row of (rpcData ?? []) as { account_manager_id: string; statut_entreprise: string | null; cnt: number }[]) {
+      if (!lookup.has(row.account_manager_id)) lookup.set(row.account_manager_id, {})
+      const key = row.statut_entreprise ?? '(vide)'
+      lookup.get(row.account_manager_id)![key] = Number(row.cnt)
     }
 
     const stats: MembreStats[] = allM2.map(m => {
-      const mine = allEntreprises.filter(e => e.account_manager_id === m.id)
+      const counts = lookup.get(m.id) ?? {}
       const byStatut: Record<string, number> = {}
+      let total = 0
       for (const s of STATUTS_ENTREPRISE) {
-        byStatut[s] = mine.filter(e => e.statut_entreprise === s).length
+        byStatut[s] = counts[s] ?? 0
+        total += byStatut[s]
       }
-      return { ...m, total: mine.length, byStatut }
+      for (const [k, v] of Object.entries(counts)) {
+        if (!STATUTS_ENTREPRISE.includes(k)) total += v
+      }
+      return { ...m, total, byStatut }
     })
 
     setAmStats(stats.sort((a, b) => b.total - a.total))
