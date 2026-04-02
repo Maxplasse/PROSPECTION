@@ -94,18 +94,19 @@ export default function Entreprises() {
       )
       return { data: [{ count: res.count ?? 0 }], error: res.error }
     },
-    [tierFilter, statutFilter, secteurFilter, search]
+    [tierFilter, statutFilter, secteurFilter, clientFilter, search]
   )
 
   const totalCount = countResult?.[0]?.count ?? 0
   const totalPages = Math.ceil(totalCount / PAGE_SIZE)
+  const hasFilters = tierFilter !== 'all' || statutFilter !== 'all' || secteurFilter !== 'all' || clientFilter !== 'all' || search.trim() !== ''
 
   return (
     <div className="space-y-4">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Entreprises</h1>
         <p className="text-muted-foreground">
-          {totalCount.toLocaleString('fr-FR')} entreprises en base.
+          {totalCount.toLocaleString('fr-FR')} entreprise{totalCount > 1 ? 's' : ''}{hasFilters ? ' (filtrées)' : ' en base'}.
         </p>
       </div>
 
