@@ -33,6 +33,7 @@ interface ContactRow {
   contact_digi: boolean
   entreprise_id: string | null
   owner_membre_id: string | null
+  entreprises: { tier: string | null } | { tier: string | null }[] | null
 }
 
 const PAGE_SIZE = 50
@@ -86,16 +87,18 @@ export default function Contacts() {
   const [personaFilter, setPersonaFilter] = useState<string>('all')
   const [statutFilter, setStatutFilter] = useState<string>(statutParam ?? 'all')
   const [entrepriseLinkFilter, setEntrepriseLinkFilter] = useState<string>('all')
+  const [tierFilter, setTierFilter] = useState<string>('all')
   const [sortBy, setSortBy] = useState<string>('relations')
   const [selected, setSelected] = useState<ContactRow | null>(null)
 
-  const hasActiveFilters = hierarchieFilter !== 'all' || personaFilter !== 'all' || statutFilter !== 'all' || entrepriseLinkFilter !== 'all' || search.trim() !== ''
+  const hasActiveFilters = hierarchieFilter !== 'all' || personaFilter !== 'all' || statutFilter !== 'all' || entrepriseLinkFilter !== 'all' || tierFilter !== 'all' || search.trim() !== ''
 
   function clearAllFilters() {
     setHierarchieFilter('all')
     setPersonaFilter('all')
     setStatutFilter('all')
     setEntrepriseLinkFilter('all')
+    setTierFilter('all')
     setSearch('')
     setPage(0)
   }
@@ -107,7 +110,7 @@ export default function Contacts() {
     if (!contactParam) return
     supabase
       .from('contacts')
-      .select('id, first_name, last_name, position, company_name, location, linkedin_url, email, persona, hierarchie, statut_contact, niveau_de_relation, scoring, nb_personnes_digi_relation, contact_digi, entreprise_id, owner_membre_id')
+      .select('id, first_name, last_name, position, company_name, location, linkedin_url, email, persona, hierarchie, statut_contact, niveau_de_relation, scoring, nb_personnes_digi_relation, contact_digi, entreprise_id, owner_membre_id, entreprises(tier)')
       .eq('id', contactParam)
       .single()
       .then(({ data }) => {
@@ -121,9 +124,11 @@ export default function Contacts() {
 
   const { data: contacts, loading, refetch } = useSupabaseQuery<ContactRow[]>(
     () => {
+      // Use !inner join when filtering by tier to exclude contacts without matching entreprise
+      const joinType = tierFilter !== 'all' ? 'entreprises!inner(tier)' : 'entreprises(tier)'
       let query = supabase
         .from('contacts')
-        .select('id, first_name, last_name, position, company_name, location, linkedin_url, email, persona, hierarchie, statut_contact, niveau_de_relation, scoring, nb_personnes_digi_relation, contact_digi, entreprise_id, owner_membre_id')
+        .select(`id, first_name, last_name, position, company_name, location, linkedin_url, email, persona, hierarchie, statut_contact, niveau_de_relation, scoring, nb_personnes_digi_relation, contact_digi, entreprise_id, owner_membre_id, ${joinType}`)
         .order(orderColumn, { ascending: false })
 
       if (entrepriseFilter) query = query.eq('entreprise_id', entrepriseFilter)
@@ -133,20 +138,22 @@ export default function Contacts() {
       if (entrepriseLinkFilter === 'sans') query = query.is('company_name', null)
       else if (entrepriseLinkFilter === 'avec') query = query.not('company_name', 'is', null)
       else if (entrepriseLinkFilter === 'non-rattache') query = query.not('company_name', 'is', null).is('entreprise_id', null)
+      if (tierFilter !== 'all') query = query.eq('entreprises.tier', tierFilter)
       if (search.trim()) {
         query = query.or(`first_name.ilike.%${search.trim()}%,last_name.ilike.%${search.trim()}%,company_name.ilike.%${search.trim()}%`)
       }
 
       return query.range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1)
     },
-    [page, hierarchieFilter, personaFilter, statutFilter, entrepriseLinkFilter, search, sortBy, entrepriseFilter]
+    [page, hierarchieFilter, personaFilter, statutFilter, entrepriseLinkFilter, tierFilter, search, sortBy, entrepriseFilter]
   )
 
   const { data: countResult } = useSupabaseQuery<{ count: number }[]>(
     async () => {
+      const joinType = tierFilter !== 'all' ? 'entreprises!inner(tier)' : 'entreprises(tier)'
       let query = supabase
         .from('contacts')
-        .select('id', { count: 'exact', head: true })
+        .select(`id, ${joinType}`, { count: 'exact', head: true })
 
       if (entrepriseFilter) query = query.eq('entreprise_id', entrepriseFilter)
       if (statutFilter !== 'all') query = query.eq('statut_contact', statutFilter)
@@ -155,6 +162,7 @@ export default function Contacts() {
       if (entrepriseLinkFilter === 'sans') query = query.is('company_name', null)
       else if (entrepriseLinkFilter === 'avec') query = query.not('company_name', 'is', null)
       else if (entrepriseLinkFilter === 'non-rattache') query = query.not('company_name', 'is', null).is('entreprise_id', null)
+      if (tierFilter !== 'all') query = query.eq('entreprises.tier', tierFilter)
       if (search.trim()) {
         query = query.or(`first_name.ilike.%${search.trim()}%,last_name.ilike.%${search.trim()}%,company_name.ilike.%${search.trim()}%`)
       }
@@ -162,7 +170,7 @@ export default function Contacts() {
       const res = await query
       return { data: [{ count: res.count ?? 0 }], error: res.error }
     },
-    [hierarchieFilter, personaFilter, statutFilter, entrepriseLinkFilter, search, entrepriseFilter]
+    [hierarchieFilter, personaFilter, statutFilter, entrepriseLinkFilter, tierFilter, search, entrepriseFilter]
   )
 
   // Fetch real contact counts per entreprise from DB
@@ -264,6 +272,19 @@ export default function Contacts() {
             <SelectItem value="Pas intéressé">Pas intéressé</SelectItem>
             <SelectItem value="En attente">En attente</SelectItem>
             <SelectItem value="Déjà client">Déjà client</SelectItem>
+          </SelectContent>
+        </Select>
+
+        <Select value={tierFilter} onValueChange={(v) => { setTierFilter(v as string); setPage(0) }}>
+          <SelectTrigger className={tierFilter !== 'all' ? activeClass : ''}>
+            <SelectValue>{tierFilter === 'all' ? 'Tout tier' : tierFilter}</SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Tout tier</SelectItem>
+            <SelectItem value="Tier 1">Tier 1</SelectItem>
+            <SelectItem value="Tier 2">Tier 2</SelectItem>
+            <SelectItem value="Tier 3">Tier 3</SelectItem>
+            <SelectItem value="Hors-Tier">Hors-Tier</SelectItem>
           </SelectContent>
         </Select>
 
