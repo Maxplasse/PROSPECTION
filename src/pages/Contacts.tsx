@@ -165,24 +165,21 @@ export default function Contacts() {
     [hierarchieFilter, personaFilter, statutFilter, entrepriseLinkFilter, tierFilter, search, entrepriseFilter]
   )
 
-  // Fetch real contact counts per entreprise from DB
+  // Fetch contact counts per entreprise using individual count queries (fast, no row transfer)
   const [entrepriseContactCounts, setEntrepriseContactCounts] = useState<Map<string, number>>(new Map())
   useEffect(() => {
     if (!contacts || contacts.length === 0) return
     const entIds = [...new Set(contacts.map(c => c.entreprise_id).filter(Boolean))] as string[]
     if (entIds.length === 0) return
 
-    supabase
-      .from('contacts')
-      .select('entreprise_id')
-      .in('entreprise_id', entIds)
-      .then(({ data }) => {
-        const counts = new Map<string, number>()
-        data?.forEach(c => {
-          if (c.entreprise_id) counts.set(c.entreprise_id, (counts.get(c.entreprise_id) ?? 0) + 1)
-        })
-        setEntrepriseContactCounts(counts)
-      })
+    Promise.all(
+      entIds.map(id =>
+        supabase.from('contacts').select('id', { count: 'exact', head: true }).eq('entreprise_id', id)
+          .then(res => [id, res.count ?? 0] as [string, number])
+      )
+    ).then(results => {
+      setEntrepriseContactCounts(new Map(results))
+    })
   }, [contacts])
 
   const totalCount = countResult?.[0]?.count ?? 0
