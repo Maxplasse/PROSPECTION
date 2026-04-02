@@ -333,8 +333,13 @@ export default function Entreprises() {
                     <TableCell className="text-sm text-muted-foreground max-w-[180px] truncate">
                       {e.company_location ?? '—'}
                     </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
-                      {e.company_employee_range ?? (e.company_employee_count ? `${e.company_employee_count.toLocaleString('fr-FR')} emp.` : '—')}
+                    <TableCell>
+                      <p className="text-sm text-muted-foreground">
+                        {e.company_employee_range ?? (e.company_employee_count ? `${e.company_employee_count.toLocaleString('fr-FR')} emp.` : '—')}
+                      </p>
+                      {e.company_typology && (
+                        <p className="text-xs text-muted-foreground/70">{e.company_typology}</p>
+                      )}
                     </TableCell>
                     <TableCell>
                       {e.secteur_digi ? (
