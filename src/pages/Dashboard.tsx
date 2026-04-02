@@ -67,13 +67,23 @@ export default function Dashboard() {
     async () => {
       const { data, error } = await supabase.rpc('get_secteur_stats')
       if (error) {
-        // Fallback: fetch raw and aggregate client-side
-        const { data: raw, error: rawErr } = await supabase
-          .from('entreprises')
-          .select('secteur_digi')
-        if (rawErr) return { data: null, error: rawErr }
+        // Fallback: fetch all secteur_digi with pagination to avoid 1000 limit
+        const all: { secteur_digi: string | null }[] = []
+        let offset = 0
+        const PAGE = 1000
+        while (true) {
+          const { data: raw, error: rawErr } = await supabase
+            .from('entreprises')
+            .select('secteur_digi')
+            .range(offset, offset + PAGE - 1)
+          if (rawErr) return { data: null, error: rawErr }
+          if (!raw || raw.length === 0) break
+          all.push(...raw)
+          if (raw.length < PAGE) break
+          offset += PAGE
+        }
         const counts: Record<string, number> = {}
-        raw?.forEach(e => {
+        all.forEach(e => {
           const s = e.secteur_digi || 'Non classé'
           counts[s] = (counts[s] || 0) + 1
         })
