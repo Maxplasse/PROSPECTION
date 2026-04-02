@@ -7,13 +7,16 @@ import { Button } from '@/components/ui/button'
 import { useSupabaseQuery } from '@/lib/hooks/use-supabase'
 import { computeTier } from '@/lib/scoring/compute-tier'
 import type {
-  Entreprise, StatutEntreprise, SecteurDigi, CompanyTypology,
+  Entreprise, StatutEntreprise, StatutDigi, SecteurDigi, CompanyTypology,
 } from '@/lib/types'
 
 const TYPOLOGIES: CompanyTypology[] = ['Grand Groupe', 'ETI', 'PME', 'TPE', 'Startup']
 const STATUTS: StatutEntreprise[] = [
-  'Qualifiée', 'A démarcher', 'En cours',
-  'Actuellement client', 'Deal en cours',
+  'À démarcher', 'Activement démarché', 'Deal en cours', 'Devenu client Digileads',
+]
+const STATUTS_DIGI: StatutDigi[] = [
+  'Client Digi - pas de mission', 'Client Digi - mission en cours',
+  'Pas client Digi', 'Client Digileads',
 ]
 const SECTEURS: SecteurDigi[] = [
   'Pharma/Santé', 'Tech', 'Service B2B', 'Education',
@@ -39,6 +42,7 @@ export function EntrepriseDrawer({ entreprise, onClose, onSaved }: Props) {
   const [parentCompanyId, setParentCompanyId] = useState<string | null>(null)
   const [parentCompanyName, setParentCompanyName] = useState<string | null>(null)
   const [isParentEntity, setIsParentEntity] = useState(false)
+  const [statutDigi, setStatutDigi] = useState<string | null>(null)
   const [sourceAcquisition, setSourceAcquisition] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
@@ -89,6 +93,7 @@ export function EntrepriseDrawer({ entreprise, onClose, onSaved }: Props) {
     if (entreprise) {
       setTypology(entreprise.company_typology)
       setStatut(entreprise.statut_entreprise)
+      setStatutDigi(entreprise.statut_digi)
       setSecteur(entreprise.secteur_digi)
       setAccountManager(entreprise.account_manager_id)
       setParentCompanyId(entreprise.parent_company_id)
@@ -113,6 +118,7 @@ export function EntrepriseDrawer({ entreprise, onClose, onSaved }: Props) {
   const hasChanges =
     typology !== entreprise.company_typology ||
     statut !== entreprise.statut_entreprise ||
+    statutDigi !== entreprise.statut_digi ||
     secteur !== entreprise.secteur_digi ||
     accountManager !== entreprise.account_manager_id ||
     parentCompanyId !== entreprise.parent_company_id ||
@@ -130,6 +136,7 @@ export function EntrepriseDrawer({ entreprise, onClose, onSaved }: Props) {
         icp: computed.icp === 'Oui',
         secteur_digi: secteur || null,
         statut_entreprise: statut || null,
+        statut_digi: statutDigi || null,
         account_manager_id: accountManager || null,
         parent_company_id: parentCompanyId || null,
         is_subsidiary: !!parentCompanyId,
@@ -235,6 +242,15 @@ export function EntrepriseDrawer({ entreprise, onClose, onSaved }: Props) {
               value={statut}
               onChange={setStatut}
               options={STATUTS.map(s => ({ value: s, label: s }))}
+            />
+          </FieldGroup>
+
+          <FieldGroup label="Statut DIGI">
+            <SelectField
+              value={statutDigi}
+              onChange={setStatutDigi}
+              options={STATUTS_DIGI.map(s => ({ value: s, label: s }))}
+              placeholder="— Non renseigné —"
             />
           </FieldGroup>
         </div>

@@ -1,9 +1,15 @@
 import { useState, useEffect } from 'react'
-import { Loader2, Users, Building2 } from 'lucide-react'
+import { Loader2, Users, Building2, UserCircle } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import {
   Table, TableHeader, TableBody, TableHead, TableRow, TableCell,
 } from '@/components/ui/table'
+import {
+  Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
+} from '@/components/ui/select'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 
 interface MembreStats {
   id: string
@@ -13,14 +19,26 @@ interface MembreStats {
 }
 
 const STATUTS_ENTREPRISE = [
-  'Qualifiée', 'A démarcher', 'En cours', 'Actuellement client', 'Deal en cours',
+  'À démarcher', 'Activement démarché', 'Deal en cours', 'Devenu client Digileads',
 ]
 
 const STATUTS_CONTACT = [
-  'À contacter', 'Contacté', 'Intéressé', 'Pas intéressé', 'En attente', 'Déjà client',
+  'À contacter', 'Contacté', 'Intéressé', 'Pas intéressé', 'Client',
 ]
 
-type Tab = 'owner' | 'account_manager'
+interface MembreContact {
+  id: string
+  first_name: string | null
+  last_name: string | null
+  position: string | null
+  company_name: string | null
+  statut_contact: string | null
+  scoring: number
+  niveau_de_relation: string | null
+  tier: string | null
+}
+
+type Tab = 'owner' | 'account_manager' | 'membre_digi'
 
 export default function Membres() {
   const [tab, setTab] = useState<Tab>('owner')
@@ -29,6 +47,15 @@ export default function Membres() {
   const [amStats, setAmStats] = useState<MembreStats[]>([])
   const [loadingOwner, setLoadingOwner] = useState(true)
   const [loadingAM, setLoadingAM] = useState(true)
+
+  // Vue Membre Digi
+  const [allMembres, setAllMembres] = useState<{ id: string; full_name: string; slack_user_id: string | null }[]>([])
+  const [selectedMembre, setSelectedMembre] = useState<string>('all')
+  const [membreTierFilter, setMembreTierFilter] = useState<string>('all')
+  const [membreContacts, setMembreContacts] = useState<MembreContact[]>([])
+  const [loadingMembreContacts, setLoadingMembreContacts] = useState(false)
+  const [sendingSlack, setSendingSlack] = useState(false)
+  const [slackSent, setSlackSent] = useState(false)
 
   useEffect(() => {
     loadOwnerStats()
@@ -41,10 +68,11 @@ export default function Membres() {
     // Fetch membres
     const { data: membresData } = await supabase
       .from('membres_digilityx')
-      .select('id, full_name')
+      .select('id, full_name, slack_user_id')
       .order('full_name')
-    const allMembres = membresData ?? []
-    setMembresCount(allMembres.length)
+    const allM = membresData ?? []
+    setMembresCount(allM.length)
+    setAllMembres(allM)
 
     // Fetch ALL contacts with owner + statut (paginated to avoid 1000 limit)
     const allContacts: { owner_membre_id: string | null; statut_contact: string | null }[] = []
@@ -63,7 +91,7 @@ export default function Membres() {
     }
 
     // Aggregate
-    const stats: MembreStats[] = allMembres.map(m => {
+    const stats: MembreStats[] = allM.map(m => {
       const mine = allContacts.filter(c => c.owner_membre_id === m.id)
       const byStatut: Record<string, number> = {}
       for (const s of STATUTS_CONTACT) {
@@ -83,7 +111,7 @@ export default function Membres() {
       .from('membres_digilityx')
       .select('id, full_name')
       .order('full_name')
-    const allMembres = membresData ?? []
+    const allM2 = membresData ?? []
 
     // Fetch ALL entreprises with AM + statut (paginated)
     const allEntreprises: { account_manager_id: string | null; statut_entreprise: string | null }[] = []
@@ -101,7 +129,7 @@ export default function Membres() {
       offset += PAGE
     }
 
-    const stats: MembreStats[] = allMembres.map(m => {
+    const stats: MembreStats[] = allM2.map(m => {
       const mine = allEntreprises.filter(e => e.account_manager_id === m.id)
       const byStatut: Record<string, number> = {}
       for (const s of STATUTS_ENTREPRISE) {
@@ -114,7 +142,41 @@ export default function Membres() {
     setLoadingAM(false)
   }
 
-  const isLoading = tab === 'owner' ? loadingOwner : loadingAM
+  // Load contacts for selected membre
+  useEffect(() => {
+    if (tab !== 'membre_digi' || selectedMembre === 'all') {
+      setMembreContacts([])
+      return
+    }
+    setLoadingMembreContacts(true)
+    setMembreTierFilter('all')
+    setSlackSent(false)
+    supabase
+      .from('contacts_membres_relations')
+      .select('niveau_de_relation, contacts(id, first_name, last_name, position, company_name, statut_contact, scoring, entreprises(tier))')
+      .eq('membre_id', selectedMembre)
+      .then(({ data }) => {
+        const rows: MembreContact[] = (data ?? []).map((r: Record<string, unknown>) => {
+          const c = r.contacts as Record<string, unknown>
+          const ent = c.entreprises as Record<string, unknown> | null
+          return {
+            id: c.id as string,
+            first_name: c.first_name as string | null,
+            last_name: c.last_name as string | null,
+            position: c.position as string | null,
+            company_name: c.company_name as string | null,
+            statut_contact: c.statut_contact as string | null,
+            scoring: c.scoring as number,
+            niveau_de_relation: r.niveau_de_relation as string | null,
+            tier: ent?.tier as string | null ?? null,
+          }
+        })
+        setMembreContacts(rows.sort((a, b) => b.scoring - a.scoring))
+        setLoadingMembreContacts(false)
+      })
+  }, [tab, selectedMembre])
+
+  const isLoading = tab === 'owner' ? loadingOwner : tab === 'account_manager' ? loadingAM : false
   const stats = tab === 'owner' ? ownerStats : amStats
   const statuts = tab === 'owner' ? STATUTS_CONTACT : STATUTS_ENTREPRISE
   const label = tab === 'owner' ? 'contacts' : 'entreprises'
@@ -124,7 +186,7 @@ export default function Membres() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Membres Digi</h1>
         <p className="text-muted-foreground">
-          {membresCount} membres · {tab === 'owner' ? 'Contacts par owner' : 'Entreprises par AM'}.
+          {membresCount} membres · {tab === 'owner' ? 'Contacts par owner' : tab === 'account_manager' ? 'Entreprises par AM' : 'Contacts par membre Digi'}.
         </p>
       </div>
 
@@ -152,10 +214,163 @@ export default function Membres() {
           <Building2 className="h-4 w-4" />
           Vue Account Manager
         </button>
+        <button
+          onClick={() => setTab('membre_digi')}
+          className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+            tab === 'membre_digi'
+              ? 'border-primary text-primary'
+              : 'border-transparent text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          <UserCircle className="h-4 w-4" />
+          Vue Membre Digi
+        </button>
       </div>
 
       {/* Content */}
-      {isLoading ? (
+      {tab === 'membre_digi' ? (
+        <div className="space-y-4">
+          <Select value={selectedMembre} onValueChange={(v) => { if (v) setSelectedMembre(v) }}>
+            <SelectTrigger className="w-[280px]">
+              <SelectValue>{selectedMembre === 'all' ? 'Sélectionner un membre' : allMembres.find(m => m.id === selectedMembre)?.full_name}</SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Tous les membres</SelectItem>
+              {allMembres.map(m => (
+                <SelectItem key={m.id} value={m.id}>{m.full_name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          {selectedMembre === 'all' ? (
+            <div className="rounded-lg border border-border bg-card p-12 text-center">
+              <UserCircle className="h-12 w-12 mx-auto text-muted-foreground/50" />
+              <p className="mt-4 text-sm text-muted-foreground">Sélectionnez un membre pour voir ses contacts liés.</p>
+            </div>
+          ) : loadingMembreContacts ? (
+            <div className="flex items-center justify-center h-64">
+              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+            </div>
+          ) : membreContacts.length === 0 ? (
+            <div className="rounded-lg border border-border bg-card p-12 text-center">
+              <Users className="h-12 w-12 mx-auto text-muted-foreground/50" />
+              <p className="mt-4 text-sm text-muted-foreground">Aucun contact lié à ce membre.</p>
+            </div>
+          ) : (() => {
+            const filtered = membreTierFilter === 'all' ? membreContacts : membreContacts.filter(c => c.tier === membreTierFilter)
+            const aTraiter = filtered.filter(c => !c.niveau_de_relation || c.niveau_de_relation === 'Non renseigné').length
+            const tierCounts = { 'Tier 1': 0, 'Tier 2': 0, 'Tier 3': 0, 'Hors-Tier': 0, 'Sans tier': 0 }
+            for (const c of membreContacts) {
+              if (c.tier && c.tier in tierCounts) tierCounts[c.tier as keyof typeof tierCounts]++
+              else tierCounts['Sans tier']++
+            }
+            return (
+            <>
+              <div className="flex flex-wrap items-center gap-3">
+                <Select value={membreTierFilter} onValueChange={(v) => { if (v) setMembreTierFilter(v) }}>
+                  <SelectTrigger className="w-[200px]">
+                    <SelectValue>{membreTierFilter === 'all' ? 'Tous les tiers' : membreTierFilter}</SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Tous les tiers ({membreContacts.length})</SelectItem>
+                    {Object.entries(tierCounts).filter(([, n]) => n > 0).map(([t, n]) => (
+                      <SelectItem key={t} value={t}>{t} ({n})</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
+                <p className="text-sm text-muted-foreground">
+                  {filtered.length} contact{filtered.length > 1 ? 's' : ''}
+                </p>
+
+                {aTraiter > 0 && (
+                  <div className="flex items-center gap-2 ml-auto">
+                    <Badge variant="destructive">
+                      {aTraiter} relation{aTraiter > 1 ? 's' : ''} à qualifier
+                    </Badge>
+                    {(() => {
+                      const membre = allMembres.find(m => m.id === selectedMembre)
+                      if (!membre?.slack_user_id) return null
+                      return (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={sendingSlack || slackSent}
+                          onClick={async () => {
+                            setSendingSlack(true)
+                            try {
+                              const appUrl = window.location.origin + '/membres'
+                              await supabase.functions.invoke('send-slack-notification', {
+                                body: {
+                                  slack_user_id: membre.slack_user_id,
+                                  message: `Salut ${membre.full_name.split(' ')[0]}, tu as ${aTraiter} contact${aTraiter > 1 ? 's' : ''} dont la relation est à qualifier. Merci de mettre à jour tes relations sur ${appUrl}`,
+                                },
+                              })
+                              setSlackSent(true)
+                              setTimeout(() => setSlackSent(false), 5000)
+                            } finally {
+                              setSendingSlack(false)
+                            }
+                          }}
+                        >
+                          {sendingSlack ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
+                          ) : (
+                            <img src="/slack-logo.jpg" alt="Slack" className="h-4 w-4 mr-1.5 rounded-sm" />
+                          )}
+                          {slackSent ? 'Envoyé !' : 'Relancer sur Slack'}
+                        </Button>
+                      )
+                    })()}
+                  </div>
+                )}
+              </div>
+              <div className="rounded-lg border border-border bg-card shadow-sm">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Contact</TableHead>
+                      <TableHead>Entreprise</TableHead>
+                      <TableHead>Relation</TableHead>
+                      <TableHead>Statut</TableHead>
+                      <TableHead className="text-center">Score</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filtered.map(c => (
+                      <TableRow key={c.id} className={!c.niveau_de_relation || c.niveau_de_relation === 'Non renseigné' ? 'bg-amber-50/50 dark:bg-amber-950/10' : ''}>
+                        <TableCell>
+                          <Link to={`/contacts?contact=${c.id}`} className="hover:underline">
+                            <p className="font-medium text-sm">{c.first_name} {c.last_name}</p>
+                            <p className="text-xs text-muted-foreground truncate max-w-[200px]">{c.position ?? '—'}</p>
+                          </Link>
+                        </TableCell>
+                        <TableCell className="text-sm">{c.company_name ?? '—'}</TableCell>
+                        <TableCell>
+                          {c.niveau_de_relation && c.niveau_de_relation !== 'Non renseigné' ? (
+                            <Badge variant="outline">{c.niveau_de_relation}</Badge>
+                          ) : <Badge variant="destructive" className="text-xs">À qualifier</Badge>}
+                        </TableCell>
+                        <TableCell>
+                          {c.statut_contact ? (
+                            <Badge variant="secondary">{c.statut_contact}</Badge>
+                          ) : <span className="text-xs text-muted-foreground">—</span>}
+                        </TableCell>
+                        <TableCell className="text-center">
+                          <span className={`text-sm font-medium ${c.scoring >= 70 ? 'text-emerald-600' : c.scoring >= 40 ? 'text-amber-600' : 'text-muted-foreground'}`}>
+                            {c.scoring}
+                          </span>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </>
+            )
+          })()}
+        </div>
+      ) : isLoading ? (
         <div className="flex items-center justify-center h-64">
           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
         </div>

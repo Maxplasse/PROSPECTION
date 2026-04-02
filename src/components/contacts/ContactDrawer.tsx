@@ -14,11 +14,11 @@ const PERSONAS: Persona[] = [
 const HIERARCHIES: Hierarchie[] = ['COMEX', 'Directeur', 'Manager', 'Opérationnel']
 const STATUTS: StatutContact[] = [
   'À contacter', 'Contacté', 'Intéressé',
-  'Pas intéressé', 'En attente', 'Déjà client',
+  'Pas intéressé', 'Client',
 ]
 const NIVEAUX_RELATION: NiveauRelation[] = [
   'Ami', 'Cercle familial', 'Ancien collègue', 'Alumni',
-  'Partenaire business', 'Connaissance', 'Inconnu',
+  'Partenaire business', 'Connaissance', 'Inconnu', 'Non renseigné',
 ]
 
 interface ContactRow {
@@ -71,9 +71,10 @@ interface Props {
   contact: ContactRow | null
   onClose: () => void
   onSaved: () => void
+  isAdmin?: boolean
 }
 
-export function ContactDrawer({ contact, onClose, onSaved }: Props) {
+export function ContactDrawer({ contact, onClose, onSaved, isAdmin: adminMode = true }: Props) {
   const [position, setPosition] = useState<string | null>(null)
   const [persona, setPersona] = useState<string | null>(null)
   const [hierarchie, setHierarchie] = useState<string | null>(null)
@@ -262,10 +263,10 @@ export function ContactDrawer({ contact, onClose, onSaved }: Props) {
 
     // Priority order (highest wins)
     const STATUT_PRIORITY: Record<string, { priority: number; entrepriseStatut: string }> = {
-      'Déjà client':    { priority: 4, entrepriseStatut: 'Actuellement client' },
+      'Client':         { priority: 4, entrepriseStatut: 'Devenu client Digileads' },
       'Intéressé':      { priority: 3, entrepriseStatut: 'Deal en cours' },
-      'Contacté':       { priority: 2, entrepriseStatut: 'En cours' },
-      'À contacter':    { priority: 1, entrepriseStatut: 'A démarcher' },
+      'Contacté':       { priority: 2, entrepriseStatut: 'Activement démarché' },
+      'À contacter':    { priority: 1, entrepriseStatut: 'À démarcher' },
     }
 
     let bestPriority = 0
@@ -330,7 +331,8 @@ export function ContactDrawer({ contact, onClose, onSaved }: Props) {
           )}
         </div>
 
-        {/* Owner */}
+        {/* Owner — admin only */}
+        {adminMode && (
         <div className="space-y-2">
           <h3 className="text-sm font-semibold text-foreground uppercase tracking-wider">Owner</h3>
           <FieldGroup label="Responsable du contact">
@@ -342,9 +344,10 @@ export function ContactDrawer({ contact, onClose, onSaved }: Props) {
             />
           </FieldGroup>
         </div>
+        )}
 
-        {/* Entreprise linking */}
-        <div className="space-y-2">
+        {/* Entreprise linking — admin only */}
+        {adminMode && <div className="space-y-2">
           <h3 className="text-sm font-semibold text-foreground uppercase tracking-wider">Entreprise</h3>
           {entrepriseId && linkedEntrepriseName ? (
             <div className="flex items-center gap-2 rounded-md bg-muted/50 px-3 py-2">
@@ -394,7 +397,7 @@ export function ContactDrawer({ contact, onClose, onSaved }: Props) {
               )}
             </div>
           )}
-        </div>
+        </div>}
 
         {/* Relations Digi — collapsible */}
         <div>
@@ -419,7 +422,7 @@ export function ContactDrawer({ contact, onClose, onSaved }: Props) {
               ) : (
                 <div className="space-y-2">
                   {relations.map(r => {
-                    const currentLevel = relationChanges[r.id] ?? r.niveau_de_relation ?? 'Inconnu'
+                    const currentLevel = relationChanges[r.id] ?? r.niveau_de_relation ?? 'Non renseigné'
                     const isOwner = r.membre_id === ownerMembreId
                     return (
                       <div key={r.id} className="flex items-center gap-2">
@@ -447,7 +450,8 @@ export function ContactDrawer({ contact, onClose, onSaved }: Props) {
           )}
         </div>
 
-        {/* Score preview */}
+        {/* Score preview — admin only */}
+        {adminMode && (
         <div className="rounded-lg border border-border p-4">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-semibold uppercase tracking-wider">Scoring</h3>
@@ -474,8 +478,10 @@ export function ContactDrawer({ contact, onClose, onSaved }: Props) {
             </div>
           </div>
         </div>
+        )}
 
-        {/* Editable fields */}
+        {/* Editable fields — admin only */}
+        {adminMode && (
         <div className="space-y-4">
           <h3 className="text-sm font-semibold text-foreground uppercase tracking-wider">Qualification</h3>
 
@@ -523,8 +529,10 @@ export function ContactDrawer({ contact, onClose, onSaved }: Props) {
             </label>
           </FieldGroup>
         </div>
+        )}
 
-        {/* Scraping history — collapsible */}
+        {/* Scraping history — admin only, collapsible */}
+        {adminMode && (
         <div>
           <button
             type="button"
@@ -567,6 +575,7 @@ export function ContactDrawer({ contact, onClose, onSaved }: Props) {
             </div>
           )}
         </div>
+        )}
 
       </div>
     </Drawer>
@@ -602,13 +611,14 @@ function getBestRelation(
     'Partenaire business': 20,
     'Connaissance': 5,
     'Inconnu': 0,
+    'Non renseigné': 0,
   }
 
   let best: NiveauRelation | null = null
   let bestScore = -1
 
   for (const r of relations) {
-    const level = (changes[r.id] ?? r.niveau_de_relation ?? 'Inconnu') as NiveauRelation
+    const level = (changes[r.id] ?? r.niveau_de_relation ?? 'Non renseigné') as NiveauRelation
     const score = SCORES[level] ?? 0
     if (score > bestScore) {
       bestScore = score

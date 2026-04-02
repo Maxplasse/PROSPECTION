@@ -260,7 +260,7 @@ function ContactImportCard() {
         for (const ownerName of owners) {
           const membreId = membreMap[ownerName]
           if (!membreId) continue
-          relations.push({ contact_id: contactId, membre_id: membreId, niveau_de_relation: 'Connaissance' })
+          relations.push({ contact_id: contactId, membre_id: membreId, niveau_de_relation: 'Non renseigné' })
         }
       }
 

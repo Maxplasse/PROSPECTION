@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams, Link } from 'react-router-dom'
-import { Users, Search, Loader2, ChevronLeft, ChevronRight, X, Building2, FilterX } from 'lucide-react'
+import { Users, Search, Loader2, ChevronLeft, ChevronRight, X, Building2, FilterX, ArrowUp, ArrowDown } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useSupabaseQuery } from '@/lib/hooks/use-supabase'
 import { Badge } from '@/components/ui/badge'
@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/select'
 import { ContactDrawer } from '@/components/contacts/ContactDrawer'
 import { scoreContact } from '@/lib/scoring/score-contact'
+import { useAuth, isAdmin } from '@/lib/auth'
 import type { Hierarchie, Persona, NiveauRelation } from '@/lib/types'
 
 interface ContactRow {
@@ -37,13 +38,6 @@ interface ContactRow {
 }
 
 const PAGE_SIZE = 50
-
-const HIERARCHIE_COLORS: Record<string, string> = {
-  'COMEX': 'default',
-  'Directeur': 'secondary',
-  'Manager': 'outline',
-  'Opérationnel': 'ghost',
-}
 
 function ScoreBar({ score }: { score: number }) {
   if (score === 0) return <span className="text-xs text-muted-foreground">—</span>
@@ -75,6 +69,8 @@ function RelationCount({ count }: { count: number }) {
 }
 
 export default function Contacts() {
+  const { membre } = useAuth()
+  const userIsAdmin = isAdmin(membre?.role)
   const [searchParams, setSearchParams] = useSearchParams()
   const entrepriseFilter = searchParams.get('entreprise')
   const entrepriseNameParam = searchParams.get('nom')
@@ -87,8 +83,8 @@ export default function Contacts() {
   const [personaFilter, setPersonaFilter] = useState<string>('all')
   const [statutFilter, setStatutFilter] = useState<string>(statutParam ?? 'all')
   const [entrepriseLinkFilter, setEntrepriseLinkFilter] = useState<string>('all')
-  const [tierFilter, setTierFilter] = useState<string>('all')
-  const [sortBy, setSortBy] = useState<string>('relations')
+  const [tierFilter, setTierFilter] = useState<string>(!userIsAdmin ? 'Tier 1' : 'all')
+  const [scoreAsc, setScoreAsc] = useState(false)
   const [selected, setSelected] = useState<ContactRow | null>(null)
 
   const hasActiveFilters = hierarchieFilter !== 'all' || personaFilter !== 'all' || statutFilter !== 'all' || entrepriseLinkFilter !== 'all' || tierFilter !== 'all' || search.trim() !== ''
@@ -118,10 +114,6 @@ export default function Contacts() {
       })
   }, [contactParam])
 
-  const orderColumn = sortBy === 'relations' ? 'nb_personnes_digi_relation'
-    : sortBy === 'scoring' ? 'scoring'
-    : 'created_at'
-
   const { data: contacts, loading, refetch } = useSupabaseQuery<ContactRow[]>(
     () => {
       // Use !inner join when filtering by tier to exclude contacts without matching entreprise
@@ -129,7 +121,7 @@ export default function Contacts() {
       let query = supabase
         .from('contacts')
         .select(`id, first_name, last_name, position, company_name, location, linkedin_url, email, persona, hierarchie, statut_contact, niveau_de_relation, scoring, nb_personnes_digi_relation, contact_digi, entreprise_id, owner_membre_id, ${joinType}`)
-        .order(orderColumn, { ascending: false })
+        .order('scoring', { ascending: scoreAsc })
 
       if (entrepriseFilter) query = query.eq('entreprise_id', entrepriseFilter)
       if (statutFilter !== 'all') query = query.eq('statut_contact', statutFilter)
@@ -145,7 +137,7 @@ export default function Contacts() {
 
       return query.range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1)
     },
-    [page, hierarchieFilter, personaFilter, statutFilter, entrepriseLinkFilter, tierFilter, search, sortBy, entrepriseFilter]
+    [page, hierarchieFilter, personaFilter, statutFilter, entrepriseLinkFilter, tierFilter, scoreAsc, search, entrepriseFilter]
   )
 
   const { data: countResult } = useSupabaseQuery<{ count: number }[]>(
@@ -270,8 +262,7 @@ export default function Contacts() {
             <SelectItem value="Contacté">Contacté</SelectItem>
             <SelectItem value="Intéressé">Intéressé</SelectItem>
             <SelectItem value="Pas intéressé">Pas intéressé</SelectItem>
-            <SelectItem value="En attente">En attente</SelectItem>
-            <SelectItem value="Déjà client">Déjà client</SelectItem>
+            <SelectItem value="Client">Client</SelectItem>
           </SelectContent>
         </Select>
 
@@ -305,18 +296,6 @@ export default function Contacts() {
           </SelectContent>
         </Select>
 
-        <Select value={sortBy} onValueChange={(v) => { setSortBy(v as string); setPage(0) }}>
-          <SelectTrigger>
-            <SelectValue>
-              {sortBy === 'relations' ? 'Relations Digi' : sortBy === 'scoring' ? 'Scoring' : 'Plus récent'}
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="relations">Relations Digi</SelectItem>
-            <SelectItem value="scoring">Scoring</SelectItem>
-            <SelectItem value="recent">Plus récent</SelectItem>
-          </SelectContent>
-        </Select>
 
         {hasActiveFilters && (
           <Button
@@ -351,16 +330,26 @@ export default function Contacts() {
                 <TableRow>
                   <TableHead>Contact</TableHead>
                   <TableHead>Entreprise</TableHead>
-                  <TableHead>Qualification</TableHead>
+                  <TableHead>Statut</TableHead>
+                  {!userIsAdmin && <TableHead>Relation</TableHead>}
                   <TableHead className="text-center">Digi</TableHead>
-                  <TableHead className="text-center">Score</TableHead>
+                  <TableHead className="text-center">
+                    <button
+                      type="button"
+                      onClick={() => { setScoreAsc(v => !v); setPage(0) }}
+                      className="inline-flex items-center gap-1 hover:text-foreground transition-colors"
+                    >
+                      Score
+                      {scoreAsc ? <ArrowUp className="h-3.5 w-3.5" /> : <ArrowDown className="h-3.5 w-3.5" />}
+                    </button>
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {contacts.map(c => {
                   const companyCount = c.entreprise_id ? (entrepriseContactCounts.get(c.entreprise_id) ?? 0) : 0;
                   return (
-                    <TableRow key={c.id} className="cursor-pointer" onClick={() => setSelected(c)}>
+                    <TableRow key={c.id} className={userIsAdmin ? 'cursor-pointer' : ''} onClick={() => userIsAdmin && setSelected(c)}>
                       <TableCell>
                         <p className="font-medium text-sm">
                           {c.first_name} {c.last_name}
@@ -387,20 +376,43 @@ export default function Contacts() {
                         </div>
                       </TableCell>
                       <TableCell>
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          {c.hierarchie ? (
-                            <Badge variant={(HIERARCHIE_COLORS[c.hierarchie] ?? 'outline') as 'default'}>
-                              {c.hierarchie}
-                            </Badge>
-                          ) : null}
-                          {c.persona && c.persona !== 'Hors expertise Digi' ? (
-                            <Badge variant="outline">{c.persona}</Badge>
-                          ) : null}
-                          {c.statut_contact ? (
-                            <Badge variant="secondary">{c.statut_contact}</Badge>
-                          ) : null}
-                        </div>
+                        {c.statut_contact ? (
+                          <Badge variant="secondary">{c.statut_contact}</Badge>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">—</span>
+                        )}
                       </TableCell>
+                      {!userIsAdmin && (
+                      <TableCell>
+                        <select
+                          value={c.niveau_de_relation ?? 'Non renseigné'}
+                          onClick={e => e.stopPropagation()}
+                          onChange={async (e) => {
+                            e.stopPropagation()
+                            const newVal = e.target.value
+                            await supabase
+                              .from('contacts')
+                              .update({ niveau_de_relation: newVal })
+                              .eq('id', c.id)
+                            refetch()
+                          }}
+                          className={`h-7 rounded-md border border-input bg-transparent px-2 text-xs outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 ${
+                            !c.niveau_de_relation || c.niveau_de_relation === 'Non renseigné'
+                              ? 'text-destructive border-destructive/50'
+                              : ''
+                          }`}
+                        >
+                          <option value="Non renseigné">Non renseigné</option>
+                          <option value="Ami">Ami</option>
+                          <option value="Cercle familial">Cercle familial</option>
+                          <option value="Ancien collègue">Ancien collègue</option>
+                          <option value="Alumni">Alumni</option>
+                          <option value="Partenaire business">Partenaire business</option>
+                          <option value="Connaissance">Connaissance</option>
+                          <option value="Inconnu">Inconnu</option>
+                        </select>
+                      </TableCell>
+                      )}
                       <TableCell className="text-center">
                         <RelationCount count={c.nb_personnes_digi_relation} />
                       </TableCell>
@@ -446,6 +458,7 @@ export default function Contacts() {
         contact={selected}
         onClose={() => setSelected(null)}
         onSaved={() => { setSelected(null); refetch() }}
+        isAdmin={userIsAdmin}
       />
     </div>
   )

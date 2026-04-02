@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { Building2, Search, Loader2, ChevronLeft, ChevronRight, ExternalLink, Users, FilterX } from 'lucide-react'
+import { Building2, Search, Loader2, ChevronLeft, ChevronRight, ExternalLink, Users, FilterX, Download } from 'lucide-react'
+import * as XLSX from 'xlsx'
 import { DigiIcon } from '@/components/icons/DigiIcon'
 import { supabase } from '@/lib/supabase'
 import { useSupabaseQuery } from '@/lib/hooks/use-supabase'
@@ -17,6 +18,7 @@ import type { Entreprise, Tier, StatutEntreprise } from '@/lib/types'
 
 type EntrepriseWithParent = Entreprise & {
   parent: { id: string; company_name: string } | null
+  account_manager: { id: string; full_name: string } | null
 }
 
 const PAGE_SIZE = 50
@@ -29,11 +31,10 @@ const TIER_COLORS: Record<string, string> = {
 }
 
 const STATUT_COLORS: Record<string, string> = {
-  'Qualifiée': 'default',
-  'A démarcher': 'secondary',
-  'En cours': 'outline',
-  'Actuellement client': 'default',
+  'À démarcher': 'secondary',
+  'Activement démarché': 'outline',
   'Deal en cours': 'destructive',
+  'Devenu client Digileads': 'default',
 }
 
 function TierBadge({ tier }: { tier: Tier | null }) {
@@ -54,9 +55,15 @@ export default function Entreprises() {
   const [statutFilter, setStatutFilter] = useState<string>(searchParams.get('statut') ?? 'all')
   const [secteurFilter, setSecteurFilter] = useState<string>(searchParams.get('secteur') ?? 'all')
   const [clientFilter, setClientFilter] = useState<string>('all')
+  const [amFilter, setAmFilter] = useState<string>('all')
   const [selected, setSelected] = useState<Entreprise | null>(null)
+  const [exporting, setExporting] = useState(false)
 
-  const hasActiveFilters = tierFilter !== 'all' || statutFilter !== 'all' || secteurFilter !== 'all' || clientFilter !== 'all' || search.trim() !== ''
+  const { data: amList } = useSupabaseQuery<{ id: string; full_name: string }[]>(
+    () => supabase.from('membres_digilityx').select('id, full_name').eq('role', 'account_manager').order('full_name')
+  )
+
+  const hasActiveFilters = tierFilter !== 'all' || statutFilter !== 'all' || secteurFilter !== 'all' || clientFilter !== 'all' || amFilter !== 'all' || search.trim() !== ''
   const activeClass = 'border-primary bg-primary/10 text-primary'
 
   function clearAllFilters() {
@@ -64,6 +71,7 @@ export default function Entreprises() {
     setStatutFilter('all')
     setSecteurFilter('all')
     setClientFilter('all')
+    setAmFilter('all')
     setSearch('')
     setPage(0)
   }
@@ -74,17 +82,56 @@ export default function Entreprises() {
     if (tierFilter !== 'all') q = q.eq('tier', tierFilter)
     if (statutFilter !== 'all') q = q.eq('statut_entreprise', statutFilter)
     if (secteurFilter !== 'all') q = q.eq('secteur_digi', secteurFilter)
-    if (clientFilter === 'oui') q = q.eq('is_digi_client', true)
-    else if (clientFilter === 'non') q = q.eq('is_digi_client', false)
+    if (clientFilter !== 'all') q = q.eq('statut_digi', clientFilter)
+    if (amFilter !== 'all') q = q.eq('account_manager_id', amFilter)
     if (search.trim()) q = q.ilike('company_name', `%${search.trim()}%`)
     return q
   }
 
+  async function handleExport() {
+    setExporting(true)
+    try {
+      const allRows: Record<string, unknown>[] = []
+      let offset = 0
+      const BATCH = 1000
+      while (true) {
+        const { data } = await applyFilters(
+          supabase.from('entreprises')
+            .select('company_name, company_domain, company_location, company_employee_range, company_typology, secteur_digi, tier, statut_entreprise, statut_digi, icp, scoring_icp')
+            .order('company_name', { ascending: true })
+        ).range(offset, offset + BATCH - 1)
+        if (!data || data.length === 0) break
+        allRows.push(...data)
+        if (data.length < BATCH) break
+        offset += BATCH
+      }
+
+      const ws = XLSX.utils.json_to_sheet(allRows.map(r => ({
+        'Entreprise': r.company_name,
+        'Domaine': r.company_domain,
+        'Localisation': r.company_location,
+        'Taille': r.company_employee_range,
+        'Typologie': r.company_typology,
+        'Secteur': r.secteur_digi,
+        'Tier': r.tier,
+        'Statut': r.statut_entreprise,
+        'Statut DIGI': r.statut_digi,
+        'ICP': r.icp ? 'Oui' : 'Non',
+        'Score ICP': r.scoring_icp,
+      })))
+      const wb = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(wb, ws, 'Entreprises')
+      XLSX.writeFile(wb, `entreprises_export_${new Date().toISOString().slice(0, 10)}.xlsx`)
+    } finally {
+      setExporting(false)
+    }
+  }
+
   const { data: entreprises, loading, refetch } = useSupabaseQuery<EntrepriseWithParent[]>(
     () => applyFilters(
-      supabase.from('entreprises').select('*, parent:parent_company_id(id, company_name)').order('company_name', { ascending: true })
+      supabase.from('entreprises').select('*, parent:parent_company_id(id, company_name), account_manager:account_manager_id(id, full_name)').order('company_name', { ascending: true })
     ).range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1),
-    [page, tierFilter, statutFilter, secteurFilter, clientFilter, search]
+    [page, tierFilter, statutFilter, secteurFilter, clientFilter, amFilter, search]
   )
 
   const { data: countResult } = useSupabaseQuery<{ count: number }[]>(
@@ -94,7 +141,7 @@ export default function Entreprises() {
       )
       return { data: [{ count: res.count ?? 0 }], error: res.error }
     },
-    [tierFilter, statutFilter, secteurFilter, clientFilter, search]
+    [tierFilter, statutFilter, secteurFilter, clientFilter, amFilter, search]
   )
 
   const totalCount = countResult?.[0]?.count ?? 0
@@ -135,19 +182,33 @@ export default function Entreprises() {
           </SelectContent>
         </Select>
 
-        <Select value={statutFilter} onValueChange={(v) => { setStatutFilter(v as string); setPage(0) }}>
-          <SelectTrigger className={statutFilter !== 'all' ? activeClass : ''}>
-            <SelectValue>{statutFilter === 'all' ? 'Tous les statuts' : statutFilter}</SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Tous les statuts</SelectItem>
-            <SelectItem value="Qualifiée">Qualifiée</SelectItem>
-            <SelectItem value="A démarcher">A démarcher</SelectItem>
-            <SelectItem value="En cours">En cours</SelectItem>
-            <SelectItem value="Actuellement client">Actuellement client</SelectItem>
-            <SelectItem value="Deal en cours">Deal en cours</SelectItem>
-          </SelectContent>
-        </Select>
+        <div className="flex items-center gap-1.5 rounded-lg border border-border px-1.5 py-1">
+          <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider px-1">Statuts</span>
+          <Select value={statutFilter} onValueChange={(v) => { setStatutFilter(v as string); setPage(0) }}>
+            <SelectTrigger className={`h-7 text-xs ${statutFilter !== 'all' ? activeClass : ''}`}>
+              <SelectValue>{statutFilter === 'all' ? 'Commercial' : statutFilter}</SelectValue>
+            </SelectTrigger>
+            <SelectContent className="min-w-[220px]">
+              <SelectItem value="all">Tous (commercial)</SelectItem>
+              <SelectItem value="À démarcher">À démarcher</SelectItem>
+              <SelectItem value="Activement démarché">Activement démarché</SelectItem>
+              <SelectItem value="Deal en cours">Deal en cours</SelectItem>
+              <SelectItem value="Devenu client Digileads">Devenu client Digileads</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={clientFilter} onValueChange={(v) => { setClientFilter(v as string); setPage(0) }}>
+            <SelectTrigger className={`h-7 text-xs ${clientFilter !== 'all' ? activeClass : ''}`}>
+              <SelectValue>{clientFilter === 'all' ? 'Digi' : clientFilter}</SelectValue>
+            </SelectTrigger>
+            <SelectContent className="min-w-[260px]">
+              <SelectItem value="all">Tous (Digi)</SelectItem>
+              <SelectItem value="Client Digi - pas de mission">Client Digi - pas de mission</SelectItem>
+              <SelectItem value="Client Digi - mission en cours">Client Digi - mission en cours</SelectItem>
+              <SelectItem value="Pas client Digi">Pas client Digi</SelectItem>
+              <SelectItem value="Client Digileads">Client Digileads</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
 
         <Select value={secteurFilter} onValueChange={(v) => { setSecteurFilter(v as string); setPage(0) }}>
           <SelectTrigger className={secteurFilter !== 'all' ? activeClass : ''}>
@@ -171,14 +232,15 @@ export default function Entreprises() {
           </SelectContent>
         </Select>
 
-        <Select value={clientFilter} onValueChange={(v) => { setClientFilter(v as string); setPage(0) }}>
-          <SelectTrigger className={clientFilter !== 'all' ? activeClass : ''}>
-            <SelectValue>{clientFilter === 'all' ? 'Client Digi' : clientFilter === 'oui' ? 'Client Digi' : 'Non client'}</SelectValue>
+        <Select value={amFilter} onValueChange={(v) => { setAmFilter(v as string); setPage(0) }}>
+          <SelectTrigger className={amFilter !== 'all' ? activeClass : ''}>
+            <SelectValue>{amFilter === 'all' ? 'Tout AM' : amList?.find(m => m.id === amFilter)?.full_name ?? amFilter}</SelectValue>
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">Tous</SelectItem>
-            <SelectItem value="oui">Client Digi</SelectItem>
-            <SelectItem value="non">Non client</SelectItem>
+            <SelectItem value="all">Tout AM</SelectItem>
+            {(amList ?? []).map(m => (
+              <SelectItem key={m.id} value={m.id}>{m.full_name}</SelectItem>
+            ))}
           </SelectContent>
         </Select>
 
@@ -193,6 +255,16 @@ export default function Entreprises() {
             Effacer
           </Button>
         )}
+
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleExport}
+          disabled={exporting || totalCount === 0}
+        >
+          {exporting ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : <Download className="h-4 w-4 mr-1.5" />}
+          Export Excel
+        </Button>
       </div>
 
       {loading ? (
@@ -213,14 +285,15 @@ export default function Entreprises() {
             <Table className="table-fixed">
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-[22%]">Entreprise</TableHead>
-                  <TableHead className="w-[16%]">Localisation</TableHead>
-                  <TableHead className="w-[10%]">Taille</TableHead>
-                  <TableHead className="w-[14%]">Secteur</TableHead>
-                  <TableHead className="w-[8%]">Tier</TableHead>
+                  <TableHead className="w-[20%]">Entreprise</TableHead>
+                  <TableHead className="w-[13%]">Localisation</TableHead>
+                  <TableHead className="w-[8%]">Taille</TableHead>
+                  <TableHead className="w-[12%]">Secteur</TableHead>
+                  <TableHead className="w-[7%]">Tier</TableHead>
                   <TableHead className="w-[10%]">Statut</TableHead>
+                  <TableHead className="w-[10%]">AM</TableHead>
                   <TableHead className="w-[6%]">ICP</TableHead>
-                  <TableHead className="w-[8%]"></TableHead>
+                  <TableHead className="w-[7%]"></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -273,6 +346,9 @@ export default function Entreprises() {
                     </TableCell>
                     <TableCell><TierBadge tier={e.tier} /></TableCell>
                     <TableCell><StatutBadge statut={e.statut_entreprise} /></TableCell>
+                    <TableCell className="text-sm text-muted-foreground truncate max-w-[120px]">
+                      {e.account_manager?.full_name ?? '—'}
+                    </TableCell>
                     <TableCell>
                       <Badge variant={e.icp ? 'default' : 'outline'}>
                         {e.icp ? 'Oui' : 'Non'}

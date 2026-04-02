@@ -1,11 +1,16 @@
 export type Tier = 'Tier 1' | 'Tier 2' | 'Tier 3' | 'Hors-Tier'
 
 export type StatutEntreprise =
-  | 'Qualifiée'
-  | 'A démarcher'
-  | 'En cours'
-  | 'Actuellement client'
+  | 'À démarcher'
+  | 'Activement démarché'
   | 'Deal en cours'
+  | 'Devenu client Digileads'
+
+export type StatutDigi =
+  | 'Client Digi - pas de mission'
+  | 'Client Digi - mission en cours'
+  | 'Pas client Digi'
+  | 'Client Digileads'
 
 export type Persona =
   | 'Dirigeant'
@@ -21,8 +26,7 @@ export type StatutContact =
   | 'Contacté'
   | 'Intéressé'
   | 'Pas intéressé'
-  | 'En attente'
-  | 'Déjà client'
+  | 'Client'
 
 export type NiveauRelation =
   | 'Ami'
@@ -32,6 +36,7 @@ export type NiveauRelation =
   | 'Partenaire business'
   | 'Connaissance'
   | 'Inconnu'
+  | 'Non renseigné'
 
 export type StatutNotification = 'Envoyée' | 'Lue' | 'En attente'
 
@@ -106,6 +111,7 @@ export interface Entreprise {
   company_specialties: string | null
   tier: Tier | null
   statut_entreprise: StatutEntreprise | null
+  statut_digi: StatutDigi | null
   is_digi_client: boolean
   source_acquisition: string | null
   created_at: string
@@ -177,6 +183,7 @@ export interface MembreDigilityx {
   full_name: string
   role: MembreRole
   email: string | null
+  slack_user_id: string | null
   consent: boolean
   created_at: string
 }
