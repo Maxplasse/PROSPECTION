@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react'
-import { Loader2, Users, Building2, UserCircle } from 'lucide-react'
+import { useState, useEffect, useRef } from 'react'
+import { Loader2, Users, Building2, UserCircle, ChevronDown, Check, Download } from 'lucide-react'
 import { Link } from 'react-router-dom'
+import * as XLSX from 'xlsx'
 import { supabase } from '@/lib/supabase'
 import {
   Table, TableHeader, TableBody, TableHead, TableRow, TableCell,
@@ -36,6 +37,79 @@ interface MembreContact {
   scoring: number
   niveau_de_relation: string | null
   tier: string | null
+  secteur_digi: string | null
+}
+
+const SECTEURS = [
+  'Tech', 'Service B2B', 'Education', 'BAF', 'Tourisme/Loisir', 'Service',
+  'Pharma/Santé', 'Grande distribution', 'Immobilier', 'Recrutement',
+  'Transports/Logistique', 'Luxe', 'e-commerce',
+]
+
+function SecteurMultiSelect({ values, onChange, activeClass }: {
+  values: string[]
+  onChange: (v: string[]) => void
+  activeClass: string
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [])
+
+  function toggle(s: string) {
+    onChange(values.includes(s) ? values.filter(v => v !== s) : [...values, s])
+  }
+
+  const label = values.length === 0
+    ? 'Tous les secteurs'
+    : values.length === 1
+      ? values[0]
+      : `${values.length} secteurs`
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        className={`inline-flex items-center gap-1.5 h-8 rounded-lg border border-input bg-transparent px-3 text-sm outline-none hover:bg-accent focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 ${values.length > 0 ? activeClass : ''}`}
+      >
+        {label}
+        <ChevronDown className="h-3.5 w-3.5 opacity-50" />
+      </button>
+      {open && (
+        <div className="absolute z-50 mt-1 w-56 rounded-lg border bg-popover p-1 shadow-md">
+          {values.length > 0 && (
+            <button
+              type="button"
+              onClick={() => onChange([])}
+              className="w-full text-left px-2 py-1.5 text-xs text-muted-foreground hover:bg-accent rounded-md"
+            >
+              Effacer la sélection
+            </button>
+          )}
+          {SECTEURS.map(s => (
+            <button
+              key={s}
+              type="button"
+              onClick={() => toggle(s)}
+              className="w-full flex items-center gap-2 px-2 py-1.5 text-sm hover:bg-accent rounded-md"
+            >
+              <span className={`flex h-4 w-4 items-center justify-center rounded border ${values.includes(s) ? 'bg-primary border-primary text-primary-foreground' : 'border-input'}`}>
+                {values.includes(s) && <Check className="h-3 w-3" />}
+              </span>
+              {s}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
 }
 
 type Tab = 'owner' | 'account_manager' | 'membre_digi'
@@ -52,6 +126,7 @@ export default function Membres() {
   const [allMembres, setAllMembres] = useState<{ id: string; full_name: string; slack_user_id: string | null }[]>([])
   const [selectedMembre, setSelectedMembre] = useState<string>('all')
   const [membreTierFilter, setMembreTierFilter] = useState<string>('all')
+  const [membreSecteurFilter, setMembreSecteurFilter] = useState<string[]>([])
   const [membreContacts, setMembreContacts] = useState<MembreContact[]>([])
   const [loadingMembreContacts, setLoadingMembreContacts] = useState(false)
   const [sendingSlack, setSendingSlack] = useState(false)
@@ -142,10 +217,11 @@ export default function Membres() {
     }
     setLoadingMembreContacts(true)
     setMembreTierFilter('all')
+    setMembreSecteurFilter([])
     setSlackSent(false)
     supabase
       .from('contacts_membres_relations')
-      .select('niveau_de_relation, contacts(id, first_name, last_name, position, company_name, statut_contact, scoring, entreprises(tier))')
+      .select('niveau_de_relation, contacts(id, first_name, last_name, position, company_name, statut_contact, scoring, entreprises(tier, secteur_digi))')
       .eq('membre_id', selectedMembre)
       .then(({ data }) => {
         const rows: MembreContact[] = (data ?? []).map((r: Record<string, unknown>) => {
@@ -161,6 +237,7 @@ export default function Membres() {
             scoring: c.scoring as number,
             niveau_de_relation: r.niveau_de_relation as string | null,
             tier: ent?.tier as string | null ?? null,
+            secteur_digi: ent?.secteur_digi as string | null ?? null,
           }
         })
         setMembreContacts(rows.sort((a, b) => b.scoring - a.scoring))
@@ -249,7 +326,8 @@ export default function Membres() {
               <p className="mt-4 text-sm text-muted-foreground">Aucun contact lié à ce membre.</p>
             </div>
           ) : (() => {
-            const filtered = membreTierFilter === 'all' ? membreContacts : membreContacts.filter(c => c.tier === membreTierFilter)
+            let filtered = membreTierFilter === 'all' ? membreContacts : membreContacts.filter(c => c.tier === membreTierFilter)
+            if (membreSecteurFilter.length > 0) filtered = filtered.filter(c => c.secteur_digi && membreSecteurFilter.includes(c.secteur_digi))
             const aTraiter = filtered.filter(c => !c.niveau_de_relation || c.niveau_de_relation === 'Non renseigné').length
             const tierCounts = { 'Tier 1': 0, 'Tier 2': 0, 'Tier 3': 0, 'Hors-Tier': 0, 'Sans tier': 0 }
             for (const c of membreContacts) {
@@ -271,9 +349,42 @@ export default function Membres() {
                   </SelectContent>
                 </Select>
 
+                <SecteurMultiSelect
+                  values={membreSecteurFilter}
+                  onChange={(v) => setMembreSecteurFilter(v)}
+                  activeClass="border-primary bg-primary/10 text-primary"
+                />
+
                 <p className="text-sm text-muted-foreground">
                   {filtered.length} contact{filtered.length > 1 ? 's' : ''}
                 </p>
+
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={filtered.length === 0}
+                  onClick={() => {
+                    const membreName = allMembres.find(m => m.id === selectedMembre)?.full_name ?? 'membre'
+                    const ws = XLSX.utils.json_to_sheet(filtered.map(c => ({
+                      'Prénom': c.first_name,
+                      'Nom': c.last_name,
+                      'Poste': c.position,
+                      'Entreprise': c.company_name,
+                      'Secteur': c.secteur_digi,
+                      'Tier': c.tier,
+                      'Relation': c.niveau_de_relation,
+                      'Statut': c.statut_contact,
+                      'Score': c.scoring,
+                    })))
+                    const wb = XLSX.utils.book_new()
+                    XLSX.utils.book_append_sheet(wb, ws, 'Contacts')
+                    const suffix = membreSecteurFilter.length > 0 ? `_${membreSecteurFilter.join('-')}` : ''
+                    XLSX.writeFile(wb, `contacts_${membreName.replace(/\s+/g, '_')}${suffix}.xlsx`)
+                  }}
+                >
+                  <Download className="h-3.5 w-3.5 mr-1.5" />
+                  Export Excel
+                </Button>
 
                 {aTraiter > 0 && (
                   <div className="flex items-center gap-2 ml-auto">
