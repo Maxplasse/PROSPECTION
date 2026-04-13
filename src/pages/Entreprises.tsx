@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { Building2, Search, Loader2, ChevronLeft, ChevronRight, ExternalLink, Users, FilterX, Download } from 'lucide-react'
+import { Building2, Search, Loader2, ChevronLeft, ChevronRight, ExternalLink, Users, FilterX, Download, ChevronDown, Check } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import { DigiIcon } from '@/components/icons/DigiIcon'
 import { supabase } from '@/lib/supabase'
@@ -47,13 +47,88 @@ function StatutBadge({ statut }: { statut: StatutEntreprise | null }) {
   return <Badge variant={(STATUT_COLORS[statut] ?? 'outline') as 'default'}>{statut}</Badge>
 }
 
+const SECTEURS = [
+  'Tech', 'Service B2B', 'Education', 'BAF', 'Tourisme/Loisir', 'Service',
+  'Pharma/Santé', 'Grande distribution', 'Immobilier', 'Recrutement',
+  'Transports/Logistique', 'Luxe', 'e-commerce',
+]
+
+function SecteurMultiSelect({ values, onChange, activeClass }: {
+  values: string[]
+  onChange: (v: string[]) => void
+  activeClass: string
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [])
+
+  function toggle(s: string) {
+    onChange(values.includes(s) ? values.filter(v => v !== s) : [...values, s])
+  }
+
+  const label = values.length === 0
+    ? 'Tous les secteurs'
+    : values.length === 1
+      ? values[0]
+      : `${values.length} secteurs`
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        className={`inline-flex items-center gap-1.5 h-8 rounded-lg border border-input bg-transparent px-3 text-sm outline-none hover:bg-accent focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 ${values.length > 0 ? activeClass : ''}`}
+      >
+        {label}
+        <ChevronDown className="h-3.5 w-3.5 opacity-50" />
+      </button>
+      {open && (
+        <div className="absolute z-50 mt-1 w-56 rounded-lg border bg-popover p-1 shadow-md">
+          {values.length > 0 && (
+            <button
+              type="button"
+              onClick={() => onChange([])}
+              className="w-full text-left px-2 py-1.5 text-xs text-muted-foreground hover:bg-accent rounded-md"
+            >
+              Effacer la sélection
+            </button>
+          )}
+          {SECTEURS.map(s => (
+            <button
+              key={s}
+              type="button"
+              onClick={() => toggle(s)}
+              className="w-full flex items-center gap-2 px-2 py-1.5 text-sm hover:bg-accent rounded-md"
+            >
+              <span className={`flex h-4 w-4 items-center justify-center rounded border ${values.includes(s) ? 'bg-primary border-primary text-primary-foreground' : 'border-input'}`}>
+                {values.includes(s) && <Check className="h-3 w-3" />}
+              </span>
+              {s}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function Entreprises() {
   const [searchParams] = useSearchParams()
   const [page, setPage] = useState(0)
   const [search, setSearch] = useState('')
   const [tierFilter, setTierFilter] = useState<string>(searchParams.get('tier') ?? 'all')
   const [statutFilter, setStatutFilter] = useState<string>(searchParams.get('statut') ?? 'all')
-  const [secteurFilter, setSecteurFilter] = useState<string>(searchParams.get('secteur') ?? 'all')
+  const [secteurFilter, setSecteurFilter] = useState<string[]>(() => {
+    const param = searchParams.get('secteur')
+    return param ? param.split(',') : []
+  })
   const [clientFilter, setClientFilter] = useState<string>('all')
   const [amFilter, setAmFilter] = useState<string>('all')
   const [selected, setSelected] = useState<Entreprise | null>(null)
@@ -63,13 +138,13 @@ export default function Entreprises() {
     () => supabase.from('membres_digilityx').select('id, full_name').eq('role', 'account_manager').order('full_name')
   )
 
-  const hasActiveFilters = tierFilter !== 'all' || statutFilter !== 'all' || secteurFilter !== 'all' || clientFilter !== 'all' || amFilter !== 'all' || search.trim() !== ''
+  const hasActiveFilters = tierFilter !== 'all' || statutFilter !== 'all' || secteurFilter.length > 0 || clientFilter !== 'all' || amFilter !== 'all' || search.trim() !== ''
   const activeClass = 'border-primary bg-primary/10 text-primary'
 
   function clearAllFilters() {
     setTierFilter('all')
     setStatutFilter('all')
-    setSecteurFilter('all')
+    setSecteurFilter([])
     setClientFilter('all')
     setAmFilter('all')
     setSearch('')
@@ -81,7 +156,7 @@ export default function Entreprises() {
     let q = query
     if (tierFilter !== 'all') q = q.eq('tier', tierFilter)
     if (statutFilter !== 'all') q = q.eq('statut_entreprise', statutFilter)
-    if (secteurFilter !== 'all') q = q.eq('secteur_digi', secteurFilter)
+    if (secteurFilter.length > 0) q = q.in('secteur_digi', secteurFilter)
     if (clientFilter !== 'all') q = q.eq('statut_digi', clientFilter)
     if (amFilter !== 'all') q = q.eq('account_manager_id', amFilter)
     if (search.trim()) q = q.ilike('company_name', `%${search.trim()}%`)
@@ -146,7 +221,7 @@ export default function Entreprises() {
 
   const totalCount = countResult?.[0]?.count ?? 0
   const totalPages = Math.ceil(totalCount / PAGE_SIZE)
-  const hasFilters = tierFilter !== 'all' || statutFilter !== 'all' || secteurFilter !== 'all' || clientFilter !== 'all' || search.trim() !== ''
+  const hasFilters = tierFilter !== 'all' || statutFilter !== 'all' || secteurFilter.length > 0 || clientFilter !== 'all' || search.trim() !== ''
 
   return (
     <div className="space-y-4">
@@ -214,27 +289,11 @@ export default function Entreprises() {
           </Select>
         </div>
 
-        <Select value={secteurFilter} onValueChange={(v) => { setSecteurFilter(v as string); setPage(0) }}>
-          <SelectTrigger className={secteurFilter !== 'all' ? activeClass : ''}>
-            <SelectValue>{secteurFilter === 'all' ? 'Tous les secteurs' : secteurFilter}</SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Tous les secteurs</SelectItem>
-            <SelectItem value="Tech">Tech</SelectItem>
-            <SelectItem value="Service B2B">Service B2B</SelectItem>
-            <SelectItem value="Education">Education</SelectItem>
-            <SelectItem value="BAF">BAF</SelectItem>
-            <SelectItem value="Tourisme/Loisir">Tourisme/Loisir</SelectItem>
-            <SelectItem value="Service">Service</SelectItem>
-            <SelectItem value="Pharma/Santé">Pharma/Santé</SelectItem>
-            <SelectItem value="Grande distribution">Grande distribution</SelectItem>
-            <SelectItem value="Immobilier">Immobilier</SelectItem>
-            <SelectItem value="Recrutement">Recrutement</SelectItem>
-            <SelectItem value="Transports/Logistique">Transports/Logistique</SelectItem>
-            <SelectItem value="Luxe">Luxe</SelectItem>
-            <SelectItem value="e-commerce">e-commerce</SelectItem>
-          </SelectContent>
-        </Select>
+        <SecteurMultiSelect
+          values={secteurFilter}
+          onChange={(v) => { setSecteurFilter(v); setPage(0) }}
+          activeClass={activeClass}
+        />
 
         <Select value={amFilter} onValueChange={(v) => { setAmFilter(v as string); setPage(0) }}>
           <SelectTrigger className={amFilter !== 'all' ? activeClass : ''}>
