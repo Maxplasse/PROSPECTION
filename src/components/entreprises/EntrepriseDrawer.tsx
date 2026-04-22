@@ -19,10 +19,10 @@ const STATUTS_DIGI: StatutDigi[] = [
   'Pas client Digi', 'Client Digileads',
 ]
 const SECTEURS: SecteurDigi[] = [
-  'Pharma/Santé', 'Tech', 'Service B2B', 'Education',
-  'Transports/Logistique', 'BAF', 'e-commerce', 'Service',
-  'Immobilier', 'Tourisme/Loisir', 'Grande distribution', 'Luxe', 'Recrutement',
-  'Non spécifié', 'Concurrent',
+  'Pharma/Santé', 'BAF', 'Éducation & Formation', 'Tourisme, Hôtellerie & Loisirs',
+  'Technologie & IT', 'Prestations aux entreprises', 'Media & Communication', 'Recrutement',
+  'Commerce de Détail', 'Luxe', 'Services aux Consommateurs', 'Industrie & Énergie',
+  'Transports & Logistique', 'Immobilier & Construction', 'Public & Administrations', 'Concurrent',
 ]
 
 interface MembreOption { id: string; full_name: string }

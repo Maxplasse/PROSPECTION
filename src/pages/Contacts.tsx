@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams, Link } from 'react-router-dom'
-import { Users, Search, Loader2, ChevronLeft, ChevronRight, X, Building2, FilterX, ArrowUp, ArrowDown } from 'lucide-react'
+import { Users, Search, Loader2, ChevronLeft, ChevronRight, X, Building2, FilterX, ArrowUp, ArrowDown, ExternalLink } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useSupabaseQuery } from '@/lib/hooks/use-supabase'
+import { useDebouncedValue } from '@/lib/hooks/use-debounced-value'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -87,6 +88,8 @@ export default function Contacts() {
   const [scoreAsc, setScoreAsc] = useState(false)
   const [selected, setSelected] = useState<ContactRow | null>(null)
 
+  const debouncedSearch = useDebouncedValue(search, 300)
+
   const hasActiveFilters = hierarchieFilter !== 'all' || personaFilter !== 'all' || statutFilter !== 'all' || entrepriseLinkFilter !== 'all' || tierFilter !== 'all' || search.trim() !== ''
 
   function clearAllFilters() {
@@ -131,13 +134,14 @@ export default function Contacts() {
       else if (entrepriseLinkFilter === 'avec') query = query.not('company_name', 'is', null)
       else if (entrepriseLinkFilter === 'non-rattache') query = query.not('company_name', 'is', null).is('entreprise_id', null)
       if (tierFilter !== 'all') query = query.eq('entreprises.tier', tierFilter)
-      if (search.trim()) {
-        query = query.or(`first_name.ilike.%${search.trim()}%,last_name.ilike.%${search.trim()}%,company_name.ilike.%${search.trim()}%`)
+      if (debouncedSearch.trim()) {
+        const s = debouncedSearch.trim()
+        query = query.or(`first_name.ilike.%${s}%,last_name.ilike.%${s}%,company_name.ilike.%${s}%`)
       }
 
       return query.range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1)
     },
-    [page, hierarchieFilter, personaFilter, statutFilter, entrepriseLinkFilter, tierFilter, scoreAsc, search, entrepriseFilter]
+    [page, hierarchieFilter, personaFilter, statutFilter, entrepriseLinkFilter, tierFilter, scoreAsc, debouncedSearch, entrepriseFilter]
   )
 
   const { data: countResult } = useSupabaseQuery<{ count: number }[]>(
@@ -155,31 +159,33 @@ export default function Contacts() {
       else if (entrepriseLinkFilter === 'avec') query = query.not('company_name', 'is', null)
       else if (entrepriseLinkFilter === 'non-rattache') query = query.not('company_name', 'is', null).is('entreprise_id', null)
       if (tierFilter !== 'all') query = query.eq('entreprises.tier', tierFilter)
-      if (search.trim()) {
-        query = query.or(`first_name.ilike.%${search.trim()}%,last_name.ilike.%${search.trim()}%,company_name.ilike.%${search.trim()}%`)
+      if (debouncedSearch.trim()) {
+        const s = debouncedSearch.trim()
+        query = query.or(`first_name.ilike.%${s}%,last_name.ilike.%${s}%,company_name.ilike.%${s}%`)
       }
 
       const res = await query
       return { data: [{ count: res.count ?? 0 }], error: res.error }
     },
-    [hierarchieFilter, personaFilter, statutFilter, entrepriseLinkFilter, tierFilter, search, entrepriseFilter]
+    [hierarchieFilter, personaFilter, statutFilter, entrepriseLinkFilter, tierFilter, debouncedSearch, entrepriseFilter]
   )
 
-  // Fetch contact counts per entreprise using individual count queries (fast, no row transfer)
   const [entrepriseContactCounts, setEntrepriseContactCounts] = useState<Map<string, number>>(new Map())
   useEffect(() => {
     if (!contacts || contacts.length === 0) return
     const entIds = [...new Set(contacts.map(c => c.entreprise_id).filter(Boolean))] as string[]
     if (entIds.length === 0) return
 
-    Promise.all(
-      entIds.map(id =>
-        supabase.from('contacts').select('id', { count: 'exact', head: true }).eq('entreprise_id', id)
-          .then(res => [id, res.count ?? 0] as [string, number])
-      )
-    ).then(results => {
-      setEntrepriseContactCounts(new Map(results))
-    })
+    supabase
+      .rpc('contact_counts_for_entreprises', { ids: entIds })
+      .then(({ data }) => {
+        if (!data) return
+        const map = new Map<string, number>()
+        for (const row of data as { entreprise_id: string; cnt: number }[]) {
+          map.set(row.entreprise_id, Number(row.cnt))
+        }
+        setEntrepriseContactCounts(map)
+      })
   }, [contacts])
 
   const totalCount = countResult?.[0]?.count ?? 0
@@ -352,9 +358,23 @@ export default function Contacts() {
                   return (
                     <TableRow key={c.id} className={userIsAdmin ? 'cursor-pointer' : ''} onClick={() => userIsAdmin && setSelected(c)}>
                       <TableCell>
-                        <p className="font-medium text-sm">
-                          {c.first_name} {c.last_name}
-                        </p>
+                        <div className="flex items-center gap-1.5">
+                          <p className="font-medium text-sm">
+                            {c.first_name} {c.last_name}
+                          </p>
+                          {c.linkedin_url && (
+                            <a
+                              href={c.linkedin_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-muted-foreground hover:text-foreground"
+                              onClick={(ev) => ev.stopPropagation()}
+                              title="Voir le profil LinkedIn"
+                            >
+                              <ExternalLink className="h-3 w-3" />
+                            </a>
+                          )}
+                        </div>
                         <p className="text-xs text-muted-foreground truncate max-w-[200px]">
                           {c.position ?? '—'}
                         </p>

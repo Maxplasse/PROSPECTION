@@ -5,6 +5,7 @@ import * as XLSX from 'xlsx'
 import { DigiIcon } from '@/components/icons/DigiIcon'
 import { supabase } from '@/lib/supabase'
 import { useSupabaseQuery } from '@/lib/hooks/use-supabase'
+import { useDebouncedValue } from '@/lib/hooks/use-debounced-value'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -48,9 +49,10 @@ function StatutBadge({ statut }: { statut: StatutEntreprise | null }) {
 }
 
 const SECTEURS = [
-  'Tech', 'Service B2B', 'Education', 'BAF', 'Tourisme/Loisir', 'Service',
-  'Pharma/Santé', 'Grande distribution', 'Immobilier', 'Recrutement',
-  'Transports/Logistique', 'Luxe', 'e-commerce',
+  'Pharma/Santé', 'BAF', 'Éducation & Formation', 'Tourisme, Hôtellerie & Loisirs',
+  'Technologie & IT', 'Prestations aux entreprises', 'Media & Communication', 'Recrutement',
+  'Commerce de Détail', 'Luxe', 'Services aux Consommateurs', 'Industrie & Énergie',
+  'Transports & Logistique', 'Immobilier & Construction', 'Public & Administrations', 'Concurrent',
 ]
 
 function SecteurMultiSelect({ values, onChange, activeClass }: {
@@ -73,10 +75,11 @@ function SecteurMultiSelect({ values, onChange, activeClass }: {
     onChange(values.includes(s) ? values.filter(v => v !== s) : [...values, s])
   }
 
+  const displayLabel = (v: string) => v === '__null__' ? 'Sans secteur' : v
   const label = values.length === 0
     ? 'Tous les secteurs'
     : values.length === 1
-      ? values[0]
+      ? displayLabel(values[0])
       : `${values.length} secteurs`
 
   return (
@@ -90,7 +93,7 @@ function SecteurMultiSelect({ values, onChange, activeClass }: {
         <ChevronDown className="h-3.5 w-3.5 opacity-50" />
       </button>
       {open && (
-        <div className="absolute z-50 mt-1 w-56 rounded-lg border bg-popover p-1 shadow-md">
+        <div className="absolute z-50 mt-1 w-64 rounded-lg border bg-popover p-1 shadow-md max-h-80 overflow-y-auto">
           {values.length > 0 && (
             <button
               type="button"
@@ -100,17 +103,17 @@ function SecteurMultiSelect({ values, onChange, activeClass }: {
               Effacer la sélection
             </button>
           )}
-          {SECTEURS.map(s => (
+          {[...SECTEURS, '__null__'].map(s => (
             <button
               key={s}
               type="button"
               onClick={() => toggle(s)}
-              className="w-full flex items-center gap-2 px-2 py-1.5 text-sm hover:bg-accent rounded-md"
+              className="w-full flex items-center gap-2 px-2 py-1.5 text-sm text-left hover:bg-accent rounded-md"
             >
-              <span className={`flex h-4 w-4 items-center justify-center rounded border ${values.includes(s) ? 'bg-primary border-primary text-primary-foreground' : 'border-input'}`}>
+              <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${values.includes(s) ? 'bg-primary border-primary text-primary-foreground' : 'border-input'}`}>
                 {values.includes(s) && <Check className="h-3 w-3" />}
               </span>
-              {s}
+              <span className={s === '__null__' ? 'italic text-muted-foreground' : ''}>{displayLabel(s)}</span>
             </button>
           ))}
         </div>
@@ -134,6 +137,8 @@ export default function Entreprises() {
   const [selected, setSelected] = useState<Entreprise | null>(null)
   const [exporting, setExporting] = useState(false)
 
+  const debouncedSearch = useDebouncedValue(search, 300)
+
   const { data: amList } = useSupabaseQuery<{ id: string; full_name: string }[]>(
     () => supabase.from('membres_digilityx').select('id, full_name').eq('role', 'account_manager').order('full_name')
   )
@@ -156,10 +161,21 @@ export default function Entreprises() {
     let q = query
     if (tierFilter !== 'all') q = q.eq('tier', tierFilter)
     if (statutFilter !== 'all') q = q.eq('statut_entreprise', statutFilter)
-    if (secteurFilter.length > 0) q = q.in('secteur_digi', secteurFilter)
+    if (secteurFilter.length > 0) {
+      const wantsNull = secteurFilter.includes('__null__')
+      const realSecteurs = secteurFilter.filter(s => s !== '__null__')
+      if (wantsNull && realSecteurs.length > 0) {
+        const list = realSecteurs.map(s => `"${s}"`).join(',')
+        q = q.or(`secteur_digi.is.null,secteur_digi.in.(${list})`)
+      } else if (wantsNull) {
+        q = q.is('secteur_digi', null)
+      } else {
+        q = q.in('secteur_digi', realSecteurs)
+      }
+    }
     if (clientFilter !== 'all') q = q.eq('statut_digi', clientFilter)
     if (amFilter !== 'all') q = q.eq('account_manager_id', amFilter)
-    if (search.trim()) q = q.ilike('company_name', `%${search.trim()}%`)
+    if (debouncedSearch.trim()) q = q.ilike('company_name', `%${debouncedSearch.trim()}%`)
     return q
   }
 
@@ -206,7 +222,7 @@ export default function Entreprises() {
     () => applyFilters(
       supabase.from('entreprises').select('*, parent:parent_company_id(id, company_name), account_manager:account_manager_id(id, full_name)').order('company_name', { ascending: true })
     ).range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1),
-    [page, tierFilter, statutFilter, secteurFilter, clientFilter, amFilter, search]
+    [page, tierFilter, statutFilter, secteurFilter, clientFilter, amFilter, debouncedSearch]
   )
 
   const { data: countResult } = useSupabaseQuery<{ count: number }[]>(
@@ -216,7 +232,7 @@ export default function Entreprises() {
       )
       return { data: [{ count: res.count ?? 0 }], error: res.error }
     },
-    [tierFilter, statutFilter, secteurFilter, clientFilter, amFilter, search]
+    [tierFilter, statutFilter, secteurFilter, clientFilter, amFilter, debouncedSearch]
   )
 
   const totalCount = countResult?.[0]?.count ?? 0
@@ -400,14 +416,16 @@ export default function Entreprises() {
                         <p className="text-xs text-muted-foreground/70">{e.company_typology}</p>
                       )}
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="max-w-0">
                       {e.secteur_digi ? (
-                        <Badge variant="outline">{e.secteur_digi}</Badge>
+                        <Badge variant="outline" className="max-w-full justify-start truncate" title={e.secteur_digi}>
+                          {e.secteur_digi}
+                        </Badge>
                       ) : (
                         <span className="text-xs text-muted-foreground">—</span>
                       )}
                       {e.linkedin_industry && (
-                        <p className="text-xs text-muted-foreground mt-0.5 max-w-[180px] truncate" title={e.linkedin_industry}>
+                        <p className="text-xs text-muted-foreground mt-0.5 truncate" title={e.linkedin_industry}>
                           {e.linkedin_industry}
                         </p>
                       )}

@@ -41,9 +41,10 @@ interface MembreContact {
 }
 
 const SECTEURS = [
-  'Tech', 'Service B2B', 'Education', 'BAF', 'Tourisme/Loisir', 'Service',
-  'Pharma/Santé', 'Grande distribution', 'Immobilier', 'Recrutement',
-  'Transports/Logistique', 'Luxe', 'e-commerce',
+  'Pharma/Santé', 'BAF', 'Éducation & Formation', 'Tourisme, Hôtellerie & Loisirs',
+  'Technologie & IT', 'Prestations aux entreprises', 'Media & Communication', 'Recrutement',
+  'Commerce de Détail', 'Luxe', 'Services aux Consommateurs', 'Industrie & Énergie',
+  'Transports & Logistique', 'Immobilier & Construction', 'Public & Administrations', 'Concurrent',
 ]
 
 function SecteurMultiSelect({ values, onChange, activeClass }: {
@@ -66,10 +67,11 @@ function SecteurMultiSelect({ values, onChange, activeClass }: {
     onChange(values.includes(s) ? values.filter(v => v !== s) : [...values, s])
   }
 
+  const displayLabel = (v: string) => v === '__null__' ? 'Sans secteur' : v
   const label = values.length === 0
     ? 'Tous les secteurs'
     : values.length === 1
-      ? values[0]
+      ? displayLabel(values[0])
       : `${values.length} secteurs`
 
   return (
@@ -83,7 +85,7 @@ function SecteurMultiSelect({ values, onChange, activeClass }: {
         <ChevronDown className="h-3.5 w-3.5 opacity-50" />
       </button>
       {open && (
-        <div className="absolute z-50 mt-1 w-56 rounded-lg border bg-popover p-1 shadow-md">
+        <div className="absolute z-50 mt-1 w-64 rounded-lg border bg-popover p-1 shadow-md max-h-80 overflow-y-auto">
           {values.length > 0 && (
             <button
               type="button"
@@ -93,17 +95,17 @@ function SecteurMultiSelect({ values, onChange, activeClass }: {
               Effacer la sélection
             </button>
           )}
-          {SECTEURS.map(s => (
+          {[...SECTEURS, '__null__'].map(s => (
             <button
               key={s}
               type="button"
               onClick={() => toggle(s)}
-              className="w-full flex items-center gap-2 px-2 py-1.5 text-sm hover:bg-accent rounded-md"
+              className="w-full flex items-center gap-2 px-2 py-1.5 text-sm text-left hover:bg-accent rounded-md"
             >
-              <span className={`flex h-4 w-4 items-center justify-center rounded border ${values.includes(s) ? 'bg-primary border-primary text-primary-foreground' : 'border-input'}`}>
+              <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${values.includes(s) ? 'bg-primary border-primary text-primary-foreground' : 'border-input'}`}>
                 {values.includes(s) && <Check className="h-3 w-3" />}
               </span>
-              {s}
+              <span className={s === '__null__' ? 'italic text-muted-foreground' : ''}>{displayLabel(s)}</span>
             </button>
           ))}
         </div>
@@ -119,8 +121,11 @@ export default function Membres() {
   const [membresCount, setMembresCount] = useState(0)
   const [ownerStats, setOwnerStats] = useState<MembreStats[]>([])
   const [amStats, setAmStats] = useState<MembreStats[]>([])
+  // Both default to true: tabs show a spinner until their data lands (or the tab is first opened)
   const [loadingOwner, setLoadingOwner] = useState(true)
   const [loadingAM, setLoadingAM] = useState(true)
+  const ownerLoadedRef = useRef(false)
+  const amLoadedRef = useRef(false)
 
   // Vue Membre Digi
   const [allMembres, setAllMembres] = useState<{ id: string; full_name: string; slack_user_id: string | null }[]>([])
@@ -132,23 +137,35 @@ export default function Membres() {
   const [sendingSlack, setSendingSlack] = useState(false)
   const [slackSent, setSlackSent] = useState(false)
 
+  // Lightweight membres list — always needed (header count + Membre Digi selector)
   useEffect(() => {
-    loadOwnerStats()
-    loadAMStats()
+    supabase
+      .from('membres_digilityx')
+      .select('id, full_name, slack_user_id')
+      .order('full_name')
+      .then(({ data }) => {
+        const list = data ?? []
+        setAllMembres(list)
+        setMembresCount(list.length)
+      })
   }, [])
 
-  async function loadOwnerStats() {
+  // Lazy-load stats the first time each tab is opened — waits for membres list
+  useEffect(() => {
+    if (allMembres.length === 0) return
+    if (tab === 'owner' && !ownerLoadedRef.current) {
+      ownerLoadedRef.current = true
+      loadOwnerStats(allMembres)
+    } else if (tab === 'account_manager' && !amLoadedRef.current) {
+      amLoadedRef.current = true
+      loadAMStats(allMembres)
+    }
+  }, [tab, allMembres])
+
+  async function loadOwnerStats(membres: typeof allMembres) {
     setLoadingOwner(true)
+    const { data: rpcData } = await supabase.rpc('get_owner_contact_stats')
 
-    const [{ data: membresData }, { data: rpcData }] = await Promise.all([
-      supabase.from('membres_digilityx').select('id, full_name, slack_user_id').order('full_name'),
-      supabase.rpc('get_owner_contact_stats'),
-    ])
-    const allM = membresData ?? []
-    setMembresCount(allM.length)
-    setAllMembres(allM)
-
-    // Build lookup: membre_id -> { statut -> count }
     const lookup = new Map<string, Record<string, number>>()
     for (const row of (rpcData ?? []) as { owner_membre_id: string; statut_contact: string | null; cnt: number }[]) {
       if (!lookup.has(row.owner_membre_id)) lookup.set(row.owner_membre_id, {})
@@ -156,7 +173,7 @@ export default function Membres() {
       lookup.get(row.owner_membre_id)![key] = Number(row.cnt)
     }
 
-    const stats: MembreStats[] = allM.map(m => {
+    const stats: MembreStats[] = membres.map(m => {
       const counts = lookup.get(m.id) ?? {}
       const byStatut: Record<string, number> = {}
       let total = 0
@@ -164,7 +181,6 @@ export default function Membres() {
         byStatut[s] = counts[s] ?? 0
         total += byStatut[s]
       }
-      // Add counts for statuts not in our list
       for (const [k, v] of Object.entries(counts)) {
         if (!STATUTS_CONTACT.includes(k)) total += v
       }
@@ -175,14 +191,9 @@ export default function Membres() {
     setLoadingOwner(false)
   }
 
-  async function loadAMStats() {
+  async function loadAMStats(membres: typeof allMembres) {
     setLoadingAM(true)
-
-    const [{ data: membresData }, { data: rpcData }] = await Promise.all([
-      supabase.from('membres_digilityx').select('id, full_name').order('full_name'),
-      supabase.rpc('get_am_entreprise_stats'),
-    ])
-    const allM2 = membresData ?? []
+    const { data: rpcData } = await supabase.rpc('get_am_entreprise_stats')
 
     const lookup = new Map<string, Record<string, number>>()
     for (const row of (rpcData ?? []) as { account_manager_id: string; statut_entreprise: string | null; cnt: number }[]) {
@@ -191,7 +202,7 @@ export default function Membres() {
       lookup.get(row.account_manager_id)![key] = Number(row.cnt)
     }
 
-    const stats: MembreStats[] = allM2.map(m => {
+    const stats: MembreStats[] = membres.map(m => {
       const counts = lookup.get(m.id) ?? {}
       const byStatut: Record<string, number> = {}
       let total = 0
@@ -220,27 +231,9 @@ export default function Membres() {
     setMembreSecteurFilter([])
     setSlackSent(false)
     supabase
-      .from('contacts_membres_relations')
-      .select('niveau_de_relation, contacts(id, first_name, last_name, position, company_name, statut_contact, scoring, entreprises(tier, secteur_digi))')
-      .eq('membre_id', selectedMembre)
+      .rpc('get_membre_contacts', { p_membre_id: selectedMembre })
       .then(({ data }) => {
-        const rows: MembreContact[] = (data ?? []).map((r: Record<string, unknown>) => {
-          const c = r.contacts as Record<string, unknown>
-          const ent = c.entreprises as Record<string, unknown> | null
-          return {
-            id: c.id as string,
-            first_name: c.first_name as string | null,
-            last_name: c.last_name as string | null,
-            position: c.position as string | null,
-            company_name: c.company_name as string | null,
-            statut_contact: c.statut_contact as string | null,
-            scoring: c.scoring as number,
-            niveau_de_relation: r.niveau_de_relation as string | null,
-            tier: ent?.tier as string | null ?? null,
-            secteur_digi: ent?.secteur_digi as string | null ?? null,
-          }
-        })
-        setMembreContacts(rows.sort((a, b) => b.scoring - a.scoring))
+        setMembreContacts((data ?? []) as MembreContact[])
         setLoadingMembreContacts(false)
       })
   }, [tab, selectedMembre])
@@ -327,7 +320,14 @@ export default function Membres() {
             </div>
           ) : (() => {
             let filtered = membreTierFilter === 'all' ? membreContacts : membreContacts.filter(c => c.tier === membreTierFilter)
-            if (membreSecteurFilter.length > 0) filtered = filtered.filter(c => c.secteur_digi && membreSecteurFilter.includes(c.secteur_digi))
+            if (membreSecteurFilter.length > 0) {
+              const wantsNull = membreSecteurFilter.includes('__null__')
+              const realSecteurs = membreSecteurFilter.filter(s => s !== '__null__')
+              filtered = filtered.filter(c =>
+                (wantsNull && !c.secteur_digi) ||
+                (c.secteur_digi !== null && realSecteurs.includes(c.secteur_digi))
+              )
+            }
             const aTraiter = filtered.filter(c => !c.niveau_de_relation || c.niveau_de_relation === 'Non renseigné').length
             const tierCounts = { 'Tier 1': 0, 'Tier 2': 0, 'Tier 3': 0, 'Hors-Tier': 0, 'Sans tier': 0 }
             for (const c of membreContacts) {

@@ -17,7 +17,7 @@ export interface TierResult {
  *  - Secteur "Concurrent"
  *
  * ICP = Non spécifié (→ Tier 3) :
- *  - Typology éligible (Grand Groupe, ETI, PME) × Secteur "Non spécifié" ou absent
+ *  - Typology éligible (Grand Groupe, ETI, PME) × Secteur absent
  *
  * ICP = Oui :
  *  - Tier 1 = Secteur prioritaire (Pharma/Santé, BAF)
@@ -27,17 +27,14 @@ export function computeTier(
   typology: CompanyTypology | null,
   secteur: SecteurDigi | null,
 ): TierResult {
-  // Hors-Tier : pas de typology, TPE, Startup, ou Concurrent
   if (!typology || TYPOLOGIES_HORS_TIER.includes(typology) || secteur === 'Concurrent') {
     return { icp: 'Non', tier: 'Hors-Tier' }
   }
 
-  // Tier 3 : secteur absent ou "Non spécifié"
-  if (!secteur || secteur === 'Non spécifié') {
+  if (!secteur) {
     return { icp: 'Non spécifié', tier: 'Tier 3' }
   }
 
-  // ICP Oui → Tier 1 ou 2
   if (SECTEURS_PRIORITAIRES.includes(secteur)) {
     return { icp: 'Oui', tier: 'Tier 1' }
   }
