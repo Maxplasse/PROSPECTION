@@ -62,6 +62,62 @@ WHERE rn = 1
 ORDER BY parent_name, child_name;
 
 -- ───────────────────────────────────────────────────────────────
+-- DÉTECTION DES MAUVAIS PARENTS (cluster mis-parented)
+-- ───────────────────────────────────────────────────────────────
+-- Pour chaque is_parent_entity, compare son score au meilleur candidat
+-- dans son cluster (filiales courantes + entités matchant le stem).
+-- Règle de score :
+--   +10 si nom commence par 'Groupe '
+--   +3  si company_typology = 'Grand Groupe'
+--   +5  si nom == stem (cluster match exact)
+--   +min(5, employees / 10_000)
+-- ATTENTION : bruité. À utiliser comme signal, revue manuelle obligatoire.
+
+/*
+WITH parents AS (
+  SELECT id, company_name, company_typology, company_employee_count,
+    (CASE WHEN company_name ILIKE 'Groupe %' THEN 10 ELSE 0 END)
+    + (CASE WHEN company_typology = 'Grand Groupe' THEN 3 ELSE 0 END)
+    + LEAST(5, (COALESCE(company_employee_count, 0) / 10000)::int)
+    AS current_score
+  FROM entreprises
+  WHERE is_parent_entity
+),
+children_prefix AS (
+  SELECT p.id AS parent_id, p.company_name AS parent_name, p.current_score,
+    array_to_string((string_to_array(trim(c.company_name), ' '))[1:2], ' ') AS child_prefix
+  FROM parents p
+  JOIN entreprises c ON c.parent_company_id = p.id
+),
+stems AS (
+  SELECT parent_id, parent_name, current_score,
+    MODE() WITHIN GROUP (ORDER BY child_prefix) AS stem,
+    COUNT(*) AS nb_children
+  FROM children_prefix
+  GROUP BY parent_id, parent_name, current_score
+)
+SELECT s.parent_name AS current_parent, s.current_score AS cur_score,
+       s.nb_children, s.stem,
+       e.company_name AS better_candidate,
+       (CASE WHEN e.company_name ILIKE 'Groupe %' THEN 10 ELSE 0 END)
+       + (CASE WHEN e.company_typology = 'Grand Groupe' THEN 3 ELSE 0 END)
+       + (CASE WHEN e.company_name = s.stem THEN 5 ELSE 0 END)
+       + LEAST(5, (COALESCE(e.company_employee_count, 0) / 10000)::int) AS cand_score
+FROM stems s
+JOIN entreprises e ON (
+     e.company_name = s.stem
+  OR e.company_name ILIKE s.stem || ' %'
+  OR e.company_name ILIKE 'Groupe ' || s.stem || '%'
+)
+WHERE e.id != s.parent_id
+  AND ((CASE WHEN e.company_name ILIKE 'Groupe %' THEN 10 ELSE 0 END)
+       + (CASE WHEN e.company_typology = 'Grand Groupe' THEN 3 ELSE 0 END)
+       + (CASE WHEN e.company_name = s.stem THEN 5 ELSE 0 END)
+       + LEAST(5, (COALESCE(e.company_employee_count, 0) / 10000)::int)) > s.current_score
+ORDER BY s.nb_children DESC, s.parent_name;
+*/
+
+-- ───────────────────────────────────────────────────────────────
 -- APPLIQUER pour UN parent validé (remplacer le nom) :
 -- ───────────────────────────────────────────────────────────────
 /*
