@@ -29,6 +29,7 @@ interface ContactRow {
   company_name: string | null
   location: string | null
   linkedin_url: string | null
+  id_url_linkedin: string | null
   email: string | null
   persona: string | null
   hierarchie: string | null
@@ -319,9 +320,9 @@ export function ContactDrawer({ contact, onClose, onSaved, isAdmin: adminMode = 
           {contact.email && (
             <p className="text-sm text-muted-foreground">{contact.email}</p>
           )}
-          {contact.linkedin_url && (
+          {(contact.id_url_linkedin || contact.linkedin_url) && (
             <a
-              href={contact.linkedin_url}
+              href={contact.id_url_linkedin ? `https://www.linkedin.com/in/${contact.id_url_linkedin}/` : contact.linkedin_url!}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline"

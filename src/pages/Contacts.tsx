@@ -25,6 +25,7 @@ interface ContactRow {
   company_name: string | null
   location: string | null
   linkedin_url: string | null
+  id_url_linkedin: string | null
   email: string | null
   persona: string | null
   hierarchie: string | null
@@ -109,7 +110,7 @@ export default function Contacts() {
     if (!contactParam) return
     supabase
       .from('contacts')
-      .select('id, first_name, last_name, position, company_name, location, linkedin_url, email, persona, hierarchie, statut_contact, niveau_de_relation, scoring, nb_personnes_digi_relation, contact_digi, entreprise_id, owner_membre_id, entreprises(tier)')
+      .select('id, first_name, last_name, position, company_name, location, linkedin_url, id_url_linkedin, email, persona, hierarchie, statut_contact, niveau_de_relation, scoring, nb_personnes_digi_relation, contact_digi, entreprise_id, owner_membre_id, entreprises(tier)')
       .eq('id', contactParam)
       .single()
       .then(({ data }) => {
@@ -362,9 +363,9 @@ export default function Contacts() {
                           <p className="font-medium text-sm">
                             {c.first_name} {c.last_name}
                           </p>
-                          {c.linkedin_url && (
+                          {(c.id_url_linkedin || c.linkedin_url) && (
                             <a
-                              href={c.linkedin_url}
+                              href={c.id_url_linkedin ? `https://www.linkedin.com/in/${c.id_url_linkedin}/` : c.linkedin_url!}
                               target="_blank"
                               rel="noopener noreferrer"
                               className="text-muted-foreground hover:text-foreground"
