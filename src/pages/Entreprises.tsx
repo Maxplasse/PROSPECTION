@@ -15,6 +15,7 @@ import {
   Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
 } from '@/components/ui/select'
 import { EntrepriseDrawer } from '@/components/entreprises/EntrepriseDrawer'
+import { useAuth, isAdmin } from '@/lib/auth'
 import type { Entreprise, Tier, StatutEntreprise } from '@/lib/types'
 
 type EntrepriseWithParent = Entreprise & {
@@ -123,9 +124,12 @@ function SecteurMultiSelect({ values, onChange, activeClass }: {
 }
 
 export default function Entreprises() {
+  const { membre } = useAuth()
+  const userIsAdmin = isAdmin(membre?.role)
   const [searchParams] = useSearchParams()
   const [page, setPage] = useState(0)
   const [search, setSearch] = useState('')
+  const [allowedIds, setAllowedIds] = useState<string[] | null>(null)
   const [tierFilter, setTierFilter] = useState<string>(searchParams.get('tier') ?? 'all')
   const [statutFilter, setStatutFilter] = useState<string>(searchParams.get('statut') ?? 'all')
   const [secteurFilter, setSecteurFilter] = useState<string[]>(() => {
@@ -138,6 +142,17 @@ export default function Entreprises() {
   const [exporting, setExporting] = useState(false)
 
   const debouncedSearch = useDebouncedValue(search, 300)
+
+  // Non-admin: scope entreprises to those linked to the user's contacts
+  useEffect(() => {
+    if (userIsAdmin || !membre?.id) return
+    supabase
+      .rpc('get_entreprise_ids_for_membre', { p_membre_id: membre.id })
+      .then(({ data }) => {
+        const ids = (data as { entreprise_id: string }[] | null)?.map(r => r.entreprise_id) ?? []
+        setAllowedIds(ids)
+      })
+  }, [userIsAdmin, membre?.id])
 
   const { data: amList } = useSupabaseQuery<{ id: string; full_name: string }[]>(
     () => supabase.from('membres_digilityx').select('id, full_name').eq('role', 'account_manager').order('full_name')
@@ -159,6 +174,7 @@ export default function Entreprises() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const applyFilters = (query: any) => {
     let q = query
+    if (!userIsAdmin) q = q.in('id', allowedIds ?? [])
     if (tierFilter !== 'all') q = q.eq('tier', tierFilter)
     if (statutFilter !== 'all') q = q.eq('statut_entreprise', statutFilter)
     if (secteurFilter.length > 0) {
@@ -222,7 +238,7 @@ export default function Entreprises() {
     () => applyFilters(
       supabase.from('entreprises').select('*, parent:parent_company_id(id, company_name), account_manager:account_manager_id(id, full_name)').order('company_name', { ascending: true })
     ).range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1),
-    [page, tierFilter, statutFilter, secteurFilter, clientFilter, amFilter, debouncedSearch]
+    [page, tierFilter, statutFilter, secteurFilter, clientFilter, amFilter, debouncedSearch, allowedIds]
   )
 
   const { data: countResult } = useSupabaseQuery<{ count: number }[]>(
@@ -232,7 +248,7 @@ export default function Entreprises() {
       )
       return { data: [{ count: res.count ?? 0 }], error: res.error }
     },
-    [tierFilter, statutFilter, secteurFilter, clientFilter, amFilter, debouncedSearch]
+    [tierFilter, statutFilter, secteurFilter, clientFilter, amFilter, debouncedSearch, allowedIds]
   )
 
   const totalCount = countResult?.[0]?.count ?? 0
@@ -346,7 +362,7 @@ export default function Entreprises() {
         </Button>
       </div>
 
-      {loading ? (
+      {loading || (!userIsAdmin && allowedIds === null) ? (
         <div className="flex items-center justify-center h-64">
           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
         </div>
@@ -377,7 +393,11 @@ export default function Entreprises() {
               </TableHeader>
               <TableBody>
                 {entreprises.map(e => (
-                  <TableRow key={e.id} className="cursor-pointer" onClick={() => setSelected(e)}>
+                  <TableRow
+                    key={e.id}
+                    className={userIsAdmin ? 'cursor-pointer' : ''}
+                    onClick={() => userIsAdmin && setSelected(e)}
+                  >
                     <TableCell className="max-w-[250px]">
                       <div className="flex items-center gap-2">
                         <span className="font-medium truncate">{e.company_name}</span>
@@ -484,11 +504,13 @@ export default function Entreprises() {
         </>
       )}
 
-      <EntrepriseDrawer
-        entreprise={selected}
-        onClose={() => setSelected(null)}
-        onSaved={() => { setSelected(null); refetch() }}
-      />
+      {userIsAdmin && (
+        <EntrepriseDrawer
+          entreprise={selected}
+          onClose={() => setSelected(null)}
+          onSaved={() => { setSelected(null); refetch() }}
+        />
+      )}
     </div>
   )
 }
