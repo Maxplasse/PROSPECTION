@@ -1,7 +1,10 @@
 import { useState, useEffect, useRef } from 'react'
-import { Loader2, Users, Building2, UserCircle, ChevronDown, Check, Download, Layers } from 'lucide-react'
+import { Loader2, Users, Building2, UserCircle, ChevronDown, Check, Download, Layers, BarChart3, Table as TableIcon } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import * as XLSX from 'xlsx'
+import {
+  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Legend, CartesianGrid,
+} from 'recharts'
 import { supabase } from '@/lib/supabase'
 import {
   Table, TableHeader, TableBody, TableHead, TableRow, TableCell,
@@ -124,6 +127,7 @@ export default function Membres() {
   const [ownerStats, setOwnerStats] = useState<MembreStats[]>([])
   const [amStats, setAmStats] = useState<MembreStats[]>([])
   const [tierStats, setTierStats] = useState<MembreStats[]>([])
+  const [tierView, setTierView] = useState<'table' | 'chart'>('table')
   // Both default to true: tabs show a spinner until their data lands (or the tab is first opened)
   const [loadingOwner, setLoadingOwner] = useState(true)
   const [loadingAM, setLoadingAM] = useState(true)
@@ -530,45 +534,103 @@ export default function Membres() {
           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
         </div>
       ) : (
-        <div className="rounded-lg border border-border bg-card shadow-sm">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Membre</TableHead>
-                <TableHead className="text-center">Total {label}</TableHead>
-                {statuts.map(s => (
-                  <TableHead key={s} className="text-center text-xs">{s}</TableHead>
-                ))}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {stats.filter(m => m.total > 0).map(m => (
-                <TableRow key={m.id}>
-                  <TableCell className="font-medium whitespace-nowrap">{m.full_name}</TableCell>
-                  <TableCell className="text-center">
-                    <span className="font-bold">{m.total}</span>
-                  </TableCell>
-                  {statuts.map(s => (
-                    <TableCell key={s} className="text-center">
-                      {m.byStatut[s] > 0 ? (
-                        <span className="text-sm font-medium">{m.byStatut[s]}</span>
-                      ) : (
-                        <span className="text-xs text-muted-foreground">—</span>
-                      )}
-                    </TableCell>
+        <>
+          {tab === 'tier' && (
+            <div className="flex gap-1 rounded-lg border border-border p-1 w-fit">
+              <button
+                onClick={() => setTierView('table')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md transition-colors ${
+                  tierView === 'table' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-accent'
+                }`}
+              >
+                <TableIcon className="h-3.5 w-3.5" />
+                Tableau
+              </button>
+              <button
+                onClick={() => setTierView('chart')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md transition-colors ${
+                  tierView === 'chart' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-accent'
+                }`}
+              >
+                <BarChart3 className="h-3.5 w-3.5" />
+                Graph
+              </button>
+            </div>
+          )}
+          {tab === 'tier' && tierView === 'chart' ? (() => {
+            const chartData = stats
+              .filter(m => m.total > 0)
+              .map(m => ({ name: m.full_name, ...m.byStatut }))
+            const height = Math.max(300, chartData.length * 28 + 80)
+            const tierColors: Record<string, string> = {
+              'Tier 1': '#10b981',
+              'Tier 2': '#0ea5e9',
+              'Tier 3': '#f59e0b',
+              'Hors-Tier': '#a1a1aa',
+              'Sans tier': '#d4d4d8',
+            }
+            return (
+              <div className="rounded-lg border border-border bg-card p-4 shadow-sm">
+                <ResponsiveContainer width="100%" height={height}>
+                  <BarChart
+                    data={chartData}
+                    layout="vertical"
+                    margin={{ top: 10, right: 20, left: 10, bottom: 10 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                    <XAxis type="number" />
+                    <YAxis dataKey="name" type="category" width={140} tick={{ fontSize: 12 }} />
+                    <Tooltip />
+                    <Legend />
+                    {statuts.map(s => (
+                      <Bar key={s} dataKey={s} stackId="a" fill={tierColors[s]} />
+                    ))}
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )
+          })() : (
+            <div className="rounded-lg border border-border bg-card shadow-sm">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Membre</TableHead>
+                    <TableHead className="text-center">Total {label}</TableHead>
+                    {statuts.map(s => (
+                      <TableHead key={s} className="text-center text-xs">{s}</TableHead>
+                    ))}
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {stats.filter(m => m.total > 0).map(m => (
+                    <TableRow key={m.id}>
+                      <TableCell className="font-medium whitespace-nowrap">{m.full_name}</TableCell>
+                      <TableCell className="text-center">
+                        <span className="font-bold">{m.total}</span>
+                      </TableCell>
+                      {statuts.map(s => (
+                        <TableCell key={s} className="text-center">
+                          {m.byStatut[s] > 0 ? (
+                            <span className="text-sm font-medium">{m.byStatut[s]}</span>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
+                      ))}
+                    </TableRow>
                   ))}
-                </TableRow>
-              ))}
-              {stats.filter(m => m.total === 0).length > 0 && (
-                <TableRow>
-                  <TableCell colSpan={statuts.length + 2} className="text-center text-sm text-muted-foreground py-3">
-                    {stats.filter(m => m.total === 0).length} membres sans {label}
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </div>
+                  {stats.filter(m => m.total === 0).length > 0 && (
+                    <TableRow>
+                      <TableCell colSpan={statuts.length + 2} className="text-center text-sm text-muted-foreground py-3">
+                        {stats.filter(m => m.total === 0).length} membres sans {label}
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </>
       )}
     </div>
   )
