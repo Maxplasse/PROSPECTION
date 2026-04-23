@@ -118,15 +118,20 @@ export default function Contacts() {
       })
   }, [contactParam])
 
+  const restrictToMembreId = !userIsAdmin ? membre?.id ?? null : null
+
   const { data: contacts, loading, refetch } = useSupabaseQuery<ContactRow[]>(
     () => {
-      // Use !inner join when filtering by tier to exclude contacts without matching entreprise
       const joinType = tierFilter !== 'all' ? 'entreprises!inner(tier)' : 'entreprises(tier)'
+      const relationsJoin = restrictToMembreId ? ', contacts_membres_relations!inner(membre_id)' : ''
+      const selectStr = `id, first_name, last_name, position, company_name, location, linkedin_url, id_url_linkedin, email, persona, hierarchie, statut_contact, niveau_de_relation, scoring, nb_personnes_digi_relation, contact_digi, entreprise_id, owner_membre_id, ${joinType}${relationsJoin}`
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       let query = supabase
         .from('contacts')
-        .select(`id, first_name, last_name, position, company_name, location, linkedin_url, id_url_linkedin, email, persona, hierarchie, statut_contact, niveau_de_relation, scoring, nb_personnes_digi_relation, contact_digi, entreprise_id, owner_membre_id, ${joinType}`)
+        .select(selectStr as unknown as '*')
         .order('scoring', { ascending: scoreAsc })
 
+      if (restrictToMembreId) query = query.eq('contacts_membres_relations.membre_id', restrictToMembreId)
       if (entrepriseFilter) query = query.eq('entreprise_id', entrepriseFilter)
       if (statutFilter !== 'all') query = query.eq('statut_contact', statutFilter)
       if (hierarchieFilter !== 'all') query = query.eq('hierarchie', hierarchieFilter)
@@ -142,16 +147,19 @@ export default function Contacts() {
 
       return query.range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1)
     },
-    [page, hierarchieFilter, personaFilter, statutFilter, entrepriseLinkFilter, tierFilter, scoreAsc, debouncedSearch, entrepriseFilter]
+    [page, hierarchieFilter, personaFilter, statutFilter, entrepriseLinkFilter, tierFilter, scoreAsc, debouncedSearch, entrepriseFilter, restrictToMembreId]
   )
 
   const { data: countResult } = useSupabaseQuery<{ count: number }[]>(
     async () => {
       const joinType = tierFilter !== 'all' ? 'entreprises!inner(tier)' : 'entreprises(tier)'
+      const relationsJoin = restrictToMembreId ? ', contacts_membres_relations!inner(membre_id)' : ''
+      const countSelectStr = `id, ${joinType}${relationsJoin}`
       let query = supabase
         .from('contacts')
-        .select(`id, ${joinType}`, { count: 'exact', head: true })
+        .select(countSelectStr as unknown as '*', { count: 'exact', head: true })
 
+      if (restrictToMembreId) query = query.eq('contacts_membres_relations.membre_id', restrictToMembreId)
       if (entrepriseFilter) query = query.eq('entreprise_id', entrepriseFilter)
       if (statutFilter !== 'all') query = query.eq('statut_contact', statutFilter)
       if (hierarchieFilter !== 'all') query = query.eq('hierarchie', hierarchieFilter)
@@ -168,7 +176,7 @@ export default function Contacts() {
       const res = await query
       return { data: [{ count: res.count ?? 0 }], error: res.error }
     },
-    [hierarchieFilter, personaFilter, statutFilter, entrepriseLinkFilter, tierFilter, debouncedSearch, entrepriseFilter]
+    [hierarchieFilter, personaFilter, statutFilter, entrepriseLinkFilter, tierFilter, debouncedSearch, entrepriseFilter, restrictToMembreId]
   )
 
   const [entrepriseContactCounts, setEntrepriseContactCounts] = useState<Map<string, number>>(new Map())
@@ -198,7 +206,7 @@ export default function Contacts() {
         <h1 className="text-2xl font-semibold tracking-tight">Contacts</h1>
         <p className="text-muted-foreground">
           {countResult ? (
-            <>{totalCount.toLocaleString('fr-FR')} contacts qualifiés avec scoring.</>
+            <>{totalCount.toLocaleString('fr-FR')} {restrictToMembreId ? 'contacts liés à vous' : 'contacts qualifiés avec scoring'}.</>
           ) : (
             <span className="inline-block h-4 w-48 animate-pulse rounded bg-muted" />
           )}
