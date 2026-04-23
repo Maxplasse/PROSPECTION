@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Loader2, Users, Building2, UserCircle, ChevronDown, Check, Download } from 'lucide-react'
+import { Loader2, Users, Building2, UserCircle, ChevronDown, Check, Download, Layers } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import * as XLSX from 'xlsx'
 import { supabase } from '@/lib/supabase'
@@ -26,6 +26,8 @@ const STATUTS_ENTREPRISE = [
 const STATUTS_CONTACT = [
   'À contacter', 'Contacté', 'Intéressé', 'Pas intéressé', 'Client',
 ]
+
+const TIERS = ['Tier 1', 'Tier 2', 'Tier 3', 'Hors-Tier', 'Sans tier']
 
 interface MembreContact {
   id: string
@@ -114,18 +116,21 @@ function SecteurMultiSelect({ values, onChange, activeClass }: {
   )
 }
 
-type Tab = 'owner' | 'account_manager' | 'membre_digi'
+type Tab = 'owner' | 'account_manager' | 'tier' | 'membre_digi'
 
 export default function Membres() {
   const [tab, setTab] = useState<Tab>('owner')
   const [membresCount, setMembresCount] = useState(0)
   const [ownerStats, setOwnerStats] = useState<MembreStats[]>([])
   const [amStats, setAmStats] = useState<MembreStats[]>([])
+  const [tierStats, setTierStats] = useState<MembreStats[]>([])
   // Both default to true: tabs show a spinner until their data lands (or the tab is first opened)
   const [loadingOwner, setLoadingOwner] = useState(true)
   const [loadingAM, setLoadingAM] = useState(true)
+  const [loadingTier, setLoadingTier] = useState(true)
   const ownerLoadedRef = useRef(false)
   const amLoadedRef = useRef(false)
+  const tierLoadedRef = useRef(false)
 
   // Vue Membre Digi
   const [allMembres, setAllMembres] = useState<{ id: string; full_name: string; slack_user_id: string | null }[]>([])
@@ -159,6 +164,9 @@ export default function Membres() {
     } else if (tab === 'account_manager' && !amLoadedRef.current) {
       amLoadedRef.current = true
       loadAMStats(allMembres)
+    } else if (tab === 'tier' && !tierLoadedRef.current) {
+      tierLoadedRef.current = true
+      loadTierStats(allMembres)
     }
   }, [tab, allMembres])
 
@@ -220,6 +228,32 @@ export default function Membres() {
     setLoadingAM(false)
   }
 
+  async function loadTierStats(membres: typeof allMembres) {
+    setLoadingTier(true)
+    const { data: rpcData } = await supabase.rpc('get_membre_relations_by_tier')
+
+    const lookup = new Map<string, Record<string, number>>()
+    for (const row of (rpcData ?? []) as { membre_id: string; tier: string; cnt: number }[]) {
+      if (!lookup.has(row.membre_id)) lookup.set(row.membre_id, {})
+      lookup.get(row.membre_id)![row.tier] = Number(row.cnt)
+    }
+
+    const stats: MembreStats[] = membres.map(m => {
+      const counts = lookup.get(m.id) ?? {}
+      const byStatut: Record<string, number> = {}
+      let total = 0
+      for (const t of TIERS) {
+        byStatut[t] = counts[t] ?? 0
+        total += byStatut[t]
+      }
+      return { ...m, total, byStatut }
+    })
+
+    // Sort by Tier 1 desc — flag the most connected on hot accounts first
+    setTierStats(stats.sort((a, b) => (b.byStatut['Tier 1'] ?? 0) - (a.byStatut['Tier 1'] ?? 0)))
+    setLoadingTier(false)
+  }
+
   // Load contacts for selected membre
   useEffect(() => {
     if (tab !== 'membre_digi' || selectedMembre === 'all') {
@@ -238,17 +272,24 @@ export default function Membres() {
       })
   }, [tab, selectedMembre])
 
-  const isLoading = tab === 'owner' ? loadingOwner : tab === 'account_manager' ? loadingAM : false
-  const stats = tab === 'owner' ? ownerStats : amStats
-  const statuts = tab === 'owner' ? STATUTS_CONTACT : STATUTS_ENTREPRISE
-  const label = tab === 'owner' ? 'contacts' : 'entreprises'
+  const isLoading = tab === 'owner' ? loadingOwner
+    : tab === 'account_manager' ? loadingAM
+    : tab === 'tier' ? loadingTier
+    : false
+  const stats = tab === 'owner' ? ownerStats
+    : tab === 'account_manager' ? amStats
+    : tierStats
+  const statuts = tab === 'owner' ? STATUTS_CONTACT
+    : tab === 'account_manager' ? STATUTS_ENTREPRISE
+    : TIERS
+  const label = tab === 'account_manager' ? 'entreprises' : 'contacts'
 
   return (
     <div className="space-y-4">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Membres Digi</h1>
         <p className="text-muted-foreground">
-          {membresCount} membres · {tab === 'owner' ? 'Contacts par owner' : tab === 'account_manager' ? 'Entreprises par AM' : 'Contacts par membre Digi'}.
+          {membresCount} membres · {tab === 'owner' ? 'Contacts par owner' : tab === 'account_manager' ? 'Entreprises par AM' : tab === 'tier' ? 'Relations par tier' : 'Contacts par membre Digi'}.
         </p>
       </div>
 
@@ -275,6 +316,17 @@ export default function Membres() {
         >
           <Building2 className="h-4 w-4" />
           Vue Account Manager
+        </button>
+        <button
+          onClick={() => setTab('tier')}
+          className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+            tab === 'tier'
+              ? 'border-primary text-primary'
+              : 'border-transparent text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          <Layers className="h-4 w-4" />
+          Vue Tier
         </button>
         <button
           onClick={() => setTab('membre_digi')}
