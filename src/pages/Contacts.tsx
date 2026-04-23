@@ -88,6 +88,7 @@ export default function Contacts() {
   const [tierFilter, setTierFilter] = useState<string>(!userIsAdmin ? 'Tier 1' : 'all')
   const [scoreAsc, setScoreAsc] = useState(false)
   const [selected, setSelected] = useState<ContactRow | null>(null)
+  const [relationOverrides, setRelationOverrides] = useState<Record<string, string>>({})
 
   const debouncedSearch = useDebouncedValue(search, 300)
 
@@ -412,24 +413,35 @@ export default function Contacts() {
                           <span className="text-xs text-muted-foreground">—</span>
                         )}
                       </TableCell>
-                      {!userIsAdmin && (
+                      {!userIsAdmin && (() => {
+                      const currentRelation = relationOverrides[c.id] ?? c.niveau_de_relation ?? 'Non renseigné'
+                      const isMissing = !currentRelation || currentRelation === 'Non renseigné'
+                      return (
                       <TableCell>
                         <select
-                          value={c.niveau_de_relation ?? 'Non renseigné'}
+                          value={currentRelation}
                           onClick={e => e.stopPropagation()}
-                          onChange={async (e) => {
+                          onChange={(e) => {
                             e.stopPropagation()
                             const newVal = e.target.value
-                            await supabase
+                            setRelationOverrides(prev => ({ ...prev, [c.id]: newVal }))
+                            supabase
                               .from('contacts')
                               .update({ niveau_de_relation: newVal })
                               .eq('id', c.id)
-                            refetch()
+                              .then(({ error }) => {
+                                if (error) {
+                                  setRelationOverrides(prev => {
+                                    const next = { ...prev }
+                                    delete next[c.id]
+                                    return next
+                                  })
+                                  console.error('niveau_de_relation update failed', error)
+                                }
+                              })
                           }}
                           className={`h-7 rounded-md border border-input bg-transparent px-2 text-xs outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 ${
-                            !c.niveau_de_relation || c.niveau_de_relation === 'Non renseigné'
-                              ? 'text-destructive border-destructive/50'
-                              : ''
+                            isMissing ? 'text-destructive border-destructive/50' : ''
                           }`}
                         >
                           <option value="Non renseigné">Non renseigné</option>
@@ -442,7 +454,8 @@ export default function Contacts() {
                           <option value="Inconnu">Inconnu</option>
                         </select>
                       </TableCell>
-                      )}
+                      )
+                      })()}
                       <TableCell className="text-center">
                         <RelationCount count={c.nb_personnes_digi_relation} />
                       </TableCell>
