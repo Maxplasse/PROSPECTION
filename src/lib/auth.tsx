@@ -86,7 +86,3 @@ export function useAuth() {
 export function isAdmin(role: AppRole | undefined): boolean {
   return role === 'admin'
 }
-
-export function isAdminOrAM(role: AppRole | undefined): boolean {
-  return role === 'admin' || role === 'account_manager'
-}

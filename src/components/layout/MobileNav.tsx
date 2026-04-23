@@ -10,7 +10,7 @@ import {
   LogOut,
 } from 'lucide-react'
 import { DigiIcon } from '@/components/icons/DigiIcon'
-import { useAuth, isAdminOrAM } from '@/lib/auth'
+import { useAuth, isAdmin } from '@/lib/auth'
 
 const allNavItems = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, restricted: false },
@@ -23,7 +23,7 @@ const allNavItems = [
 export function MobileNav() {
   const [open, setOpen] = useState(false)
   const { membre, signOut } = useAuth()
-  const fullAccess = isAdminOrAM(membre?.role)
+  const fullAccess = isAdmin(membre?.role)
   const navItems = fullAccess ? allNavItems : allNavItems.filter(item => item.restricted)
 
   return (

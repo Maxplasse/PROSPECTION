@@ -1,6 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { Layout } from './components/layout/Layout'
-import { AuthProvider, useAuth, isAdminOrAM } from './lib/auth'
+import { AuthProvider, useAuth, isAdmin } from './lib/auth'
 import { Loader2 } from 'lucide-react'
 import Dashboard from './pages/Dashboard'
 import Entreprises from './pages/Entreprises'
@@ -25,7 +25,7 @@ function AppRoutes() {
 
   if (!user) return <Login />
 
-  const fullAccess = isAdminOrAM(membre?.role)
+  const fullAccess = isAdmin(membre?.role)
 
   return (
     <Routes>
