@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams, Link } from 'react-router-dom'
-import { Users, Search, Loader2, ChevronLeft, ChevronRight, X, Building2, FilterX, ArrowUp, ArrowDown, ExternalLink } from 'lucide-react'
+import { Users, Search, ChevronLeft, ChevronRight, X, Building2, FilterX, ArrowUp, ArrowDown, ExternalLink } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useSupabaseQuery } from '@/lib/hooks/use-supabase'
 import { useDebouncedValue } from '@/lib/hooks/use-debounced-value'
@@ -89,21 +89,7 @@ export default function Contacts() {
   const [scoreAsc, setScoreAsc] = useState(false)
   const [selected, setSelected] = useState<ContactRow | null>(null)
   const [relationOverrides, setRelationOverrides] = useState<Record<string, string>>({})
-  const [allowedContactIds, setAllowedContactIds] = useState<string[] | null>(null)
-
   const debouncedSearch = useDebouncedValue(search, 300)
-
-  // Non-admin: pre-fetch the set of contact ids this user has a relation with
-  useEffect(() => {
-    if (userIsAdmin || !membre?.id) return
-    supabase
-      .from('contacts_membres_relations')
-      .select('contact_id')
-      .eq('membre_id', membre.id)
-      .then(({ data }) => {
-        setAllowedContactIds((data ?? []).map(r => r.contact_id as string))
-      })
-  }, [userIsAdmin, membre?.id])
 
   const hasActiveFilters = hierarchieFilter !== 'all' || personaFilter !== 'all' || statutFilter !== 'all' || entrepriseLinkFilter !== 'all' || tierFilter !== 'all' || search.trim() !== ''
 
@@ -135,14 +121,30 @@ export default function Contacts() {
   const restrictToMembreId = !userIsAdmin ? membre?.id ?? null : null
 
   const { data: contacts, loading, refetch } = useSupabaseQuery<ContactRow[]>(
-    () => {
+    async () => {
+      if (restrictToMembreId) {
+        const { data, error } = await supabase.rpc('get_contacts_for_membre', {
+          p_membre_id: restrictToMembreId,
+          p_tier: tierFilter === 'all' ? null : tierFilter,
+          p_statut: statutFilter === 'all' ? null : statutFilter,
+          p_hierarchie: hierarchieFilter === 'all' ? null : hierarchieFilter,
+          p_persona: personaFilter === 'all' ? null : personaFilter,
+          p_entreprise_link: entrepriseLinkFilter === 'all' ? null : entrepriseLinkFilter,
+          p_entreprise_id: entrepriseFilter ?? null,
+          p_search: debouncedSearch.trim() || null,
+          p_order_asc: scoreAsc,
+          p_offset: page * PAGE_SIZE,
+          p_limit: PAGE_SIZE,
+        })
+        return { data: (data ?? []) as ContactRow[], error }
+      }
+
       const joinType = tierFilter !== 'all' ? 'entreprises!inner(tier)' : 'entreprises(tier)'
       let query = supabase
         .from('contacts')
         .select(`id, first_name, last_name, position, company_name, location, linkedin_url, id_url_linkedin, email, persona, hierarchie, statut_contact, niveau_de_relation, scoring, nb_personnes_digi_relation, contact_digi, entreprise_id, owner_membre_id, ${joinType}`)
         .order('scoring', { ascending: scoreAsc })
 
-      if (restrictToMembreId) query = query.in('id', allowedContactIds ?? [])
       if (entrepriseFilter) query = query.eq('entreprise_id', entrepriseFilter)
       if (statutFilter !== 'all') query = query.eq('statut_contact', statutFilter)
       if (hierarchieFilter !== 'all') query = query.eq('hierarchie', hierarchieFilter)
@@ -158,17 +160,30 @@ export default function Contacts() {
 
       return query.range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1)
     },
-    [page, hierarchieFilter, personaFilter, statutFilter, entrepriseLinkFilter, tierFilter, scoreAsc, debouncedSearch, entrepriseFilter, restrictToMembreId, allowedContactIds]
+    [page, hierarchieFilter, personaFilter, statutFilter, entrepriseLinkFilter, tierFilter, scoreAsc, debouncedSearch, entrepriseFilter, restrictToMembreId]
   )
 
   const { data: countResult } = useSupabaseQuery<{ count: number }[]>(
     async () => {
+      if (restrictToMembreId) {
+        const { data, error } = await supabase.rpc('count_contacts_for_membre', {
+          p_membre_id: restrictToMembreId,
+          p_tier: tierFilter === 'all' ? null : tierFilter,
+          p_statut: statutFilter === 'all' ? null : statutFilter,
+          p_hierarchie: hierarchieFilter === 'all' ? null : hierarchieFilter,
+          p_persona: personaFilter === 'all' ? null : personaFilter,
+          p_entreprise_link: entrepriseLinkFilter === 'all' ? null : entrepriseLinkFilter,
+          p_entreprise_id: entrepriseFilter ?? null,
+          p_search: debouncedSearch.trim() || null,
+        })
+        return { data: [{ count: Number(data ?? 0) }], error }
+      }
+
       const joinType = tierFilter !== 'all' ? 'entreprises!inner(tier)' : 'entreprises(tier)'
       let query = supabase
         .from('contacts')
         .select(`id, ${joinType}`, { count: 'exact', head: true })
 
-      if (restrictToMembreId) query = query.in('id', allowedContactIds ?? [])
       if (entrepriseFilter) query = query.eq('entreprise_id', entrepriseFilter)
       if (statutFilter !== 'all') query = query.eq('statut_contact', statutFilter)
       if (hierarchieFilter !== 'all') query = query.eq('hierarchie', hierarchieFilter)
@@ -185,7 +200,7 @@ export default function Contacts() {
       const res = await query
       return { data: [{ count: res.count ?? 0 }], error: res.error }
     },
-    [hierarchieFilter, personaFilter, statutFilter, entrepriseLinkFilter, tierFilter, debouncedSearch, entrepriseFilter, restrictToMembreId, allowedContactIds]
+    [hierarchieFilter, personaFilter, statutFilter, entrepriseLinkFilter, tierFilter, debouncedSearch, entrepriseFilter, restrictToMembreId]
   )
 
   const [entrepriseContactCounts, setEntrepriseContactCounts] = useState<Map<string, number>>(new Map())
@@ -335,9 +350,31 @@ export default function Contacts() {
         )}
       </div>
 
-      {loading || (!userIsAdmin && allowedContactIds === null) ? (
-        <div className="flex items-center justify-center h-64">
-          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      {loading ? (
+        <div className="rounded-lg border border-border bg-card shadow-sm">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Contact</TableHead>
+                <TableHead>Entreprise</TableHead>
+                <TableHead>Statut</TableHead>
+                {!userIsAdmin && <TableHead>Relation</TableHead>}
+                <TableHead className="text-center">Digi</TableHead>
+                <TableHead className="text-center">Score</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {Array.from({ length: 10 }).map((_, i) => (
+                <TableRow key={i}>
+                  {Array.from({ length: userIsAdmin ? 5 : 6 }).map((_, j) => (
+                    <TableCell key={j}>
+                      <div className="h-4 bg-muted rounded animate-pulse" />
+                    </TableCell>
+                  ))}
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
         </div>
       ) : !contacts || contacts.length === 0 ? (
         <div className="rounded-lg border border-border bg-card p-12 text-center shadow-sm">

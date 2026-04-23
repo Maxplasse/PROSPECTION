@@ -129,7 +129,6 @@ export default function Entreprises() {
   const [searchParams] = useSearchParams()
   const [page, setPage] = useState(0)
   const [search, setSearch] = useState('')
-  const [allowedIds, setAllowedIds] = useState<string[] | null>(null)
   const [tierFilter, setTierFilter] = useState<string>(searchParams.get('tier') ?? 'all')
   const [statutFilter, setStatutFilter] = useState<string>(searchParams.get('statut') ?? 'all')
   const [secteurFilter, setSecteurFilter] = useState<string[]>(() => {
@@ -143,16 +142,7 @@ export default function Entreprises() {
 
   const debouncedSearch = useDebouncedValue(search, 300)
 
-  // Non-admin: scope entreprises to those linked to the user's contacts
-  useEffect(() => {
-    if (userIsAdmin || !membre?.id) return
-    supabase
-      .rpc('get_entreprise_ids_for_membre', { p_membre_id: membre.id })
-      .then(({ data }) => {
-        const ids = (data as { entreprise_id: string }[] | null)?.map(r => r.entreprise_id) ?? []
-        setAllowedIds(ids)
-      })
-  }, [userIsAdmin, membre?.id])
+  const restrictToMembreId = !userIsAdmin ? membre?.id ?? null : null
 
   const { data: amList } = useSupabaseQuery<{ id: string; full_name: string }[]>(
     () => supabase.from('membres_digilityx').select('id, full_name').eq('role', 'account_manager').order('full_name')
@@ -174,7 +164,6 @@ export default function Entreprises() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const applyFilters = (query: any) => {
     let q = query
-    if (!userIsAdmin) q = q.in('id', allowedIds ?? [])
     if (tierFilter !== 'all') q = q.eq('tier', tierFilter)
     if (statutFilter !== 'all') q = q.eq('statut_entreprise', statutFilter)
     if (secteurFilter.length > 0) {
@@ -195,6 +184,17 @@ export default function Entreprises() {
     return q
   }
 
+  const rpcParams = () => ({
+    p_membre_id: restrictToMembreId!,
+    p_tier: tierFilter === 'all' ? null : tierFilter,
+    p_statut_entreprise: statutFilter === 'all' ? null : statutFilter,
+    p_statut_digi: clientFilter === 'all' ? null : clientFilter,
+    p_secteurs: secteurFilter.length === 0 ? null : secteurFilter.filter(s => s !== '__null__'),
+    p_include_null_secteur: secteurFilter.includes('__null__'),
+    p_account_manager_id: amFilter === 'all' ? null : amFilter,
+    p_search: debouncedSearch.trim() || null,
+  })
+
   async function handleExport() {
     setExporting(true)
     try {
@@ -202,11 +202,18 @@ export default function Entreprises() {
       let offset = 0
       const BATCH = 1000
       while (true) {
-        const { data } = await applyFilters(
-          supabase.from('entreprises')
-            .select('company_name, company_domain, company_location, company_employee_range, company_typology, secteur_digi, tier, statut_entreprise, statut_digi, icp, scoring_icp')
-            .order('company_name', { ascending: true })
-        ).range(offset, offset + BATCH - 1)
+        let data: Record<string, unknown>[] | null
+        if (restrictToMembreId) {
+          const res = await supabase.rpc('get_entreprises_for_membre', { ...rpcParams(), p_offset: offset, p_limit: BATCH })
+          data = (res.data as Record<string, unknown>[] | null)
+        } else {
+          const res = await applyFilters(
+            supabase.from('entreprises')
+              .select('company_name, company_domain, company_location, company_employee_range, company_typology, secteur_digi, tier, statut_entreprise, statut_digi, icp, scoring_icp')
+              .order('company_name', { ascending: true })
+          ).range(offset, offset + BATCH - 1)
+          data = res.data as Record<string, unknown>[] | null
+        }
         if (!data || data.length === 0) break
         allRows.push(...data)
         if (data.length < BATCH) break
@@ -235,20 +242,40 @@ export default function Entreprises() {
   }
 
   const { data: entreprises, loading, refetch } = useSupabaseQuery<EntrepriseWithParent[]>(
-    () => applyFilters(
-      supabase.from('entreprises').select('*, parent:parent_company_id(id, company_name), account_manager:account_manager_id(id, full_name)').order('company_name', { ascending: true })
-    ).range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1),
-    [page, tierFilter, statutFilter, secteurFilter, clientFilter, amFilter, debouncedSearch, allowedIds]
+    async () => {
+      if (restrictToMembreId) {
+        const { data, error } = await supabase.rpc('get_entreprises_for_membre', { ...rpcParams(), p_offset: page * PAGE_SIZE, p_limit: PAGE_SIZE })
+        const rows = (data ?? []) as Array<Record<string, unknown>>
+        const mapped: EntrepriseWithParent[] = rows.map(r => ({
+          ...(r as unknown as Entreprise),
+          parent: r.parent_company_id
+            ? { id: r.parent_company_id as string, company_name: (r.parent_company_name as string) ?? '' }
+            : null,
+          account_manager: r.account_manager_id
+            ? { id: r.account_manager_id as string, full_name: (r.account_manager_name as string) ?? '' }
+            : null,
+        }))
+        return { data: mapped, error }
+      }
+      return applyFilters(
+        supabase.from('entreprises').select('*, parent:parent_company_id(id, company_name), account_manager:account_manager_id(id, full_name)').order('company_name', { ascending: true })
+      ).range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1)
+    },
+    [page, tierFilter, statutFilter, secteurFilter, clientFilter, amFilter, debouncedSearch, restrictToMembreId]
   )
 
   const { data: countResult } = useSupabaseQuery<{ count: number }[]>(
     async () => {
+      if (restrictToMembreId) {
+        const { data, error } = await supabase.rpc('count_entreprises_for_membre', rpcParams())
+        return { data: [{ count: Number(data ?? 0) }], error }
+      }
       const res = await applyFilters(
         supabase.from('entreprises').select('id', { count: 'exact', head: true })
       )
       return { data: [{ count: res.count ?? 0 }], error: res.error }
     },
-    [tierFilter, statutFilter, secteurFilter, clientFilter, amFilter, debouncedSearch, allowedIds]
+    [tierFilter, statutFilter, secteurFilter, clientFilter, amFilter, debouncedSearch, restrictToMembreId]
   )
 
   const totalCount = countResult?.[0]?.count ?? 0
@@ -362,9 +389,34 @@ export default function Entreprises() {
         </Button>
       </div>
 
-      {loading || (!userIsAdmin && allowedIds === null) ? (
-        <div className="flex items-center justify-center h-64">
-          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      {loading ? (
+        <div className="rounded-lg border border-border bg-card shadow-sm overflow-hidden">
+          <Table className="table-fixed">
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-[20%]">Entreprise</TableHead>
+                <TableHead className="w-[13%]">Localisation</TableHead>
+                <TableHead className="w-[8%]">Taille</TableHead>
+                <TableHead className="w-[12%]">Secteur</TableHead>
+                <TableHead className="w-[7%]">Tier</TableHead>
+                <TableHead className="w-[10%]">Statut</TableHead>
+                <TableHead className="w-[10%]">AM</TableHead>
+                <TableHead className="w-[6%]">ICP</TableHead>
+                <TableHead className="w-[7%]"></TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {Array.from({ length: 10 }).map((_, i) => (
+                <TableRow key={i}>
+                  {Array.from({ length: 9 }).map((_, j) => (
+                    <TableCell key={j}>
+                      <div className="h-4 bg-muted rounded animate-pulse" />
+                    </TableCell>
+                  ))}
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
         </div>
       ) : !entreprises || entreprises.length === 0 ? (
         <div className="rounded-lg border border-border bg-card p-12 text-center shadow-sm">
