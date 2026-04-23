@@ -261,7 +261,7 @@ export default function Entreprises() {
         <h1 className="text-2xl font-semibold tracking-tight">Entreprises</h1>
         <p className="text-muted-foreground">
           {countResult ? (
-            <>{totalCount.toLocaleString('fr-FR')} entreprise{totalCount > 1 ? 's' : ''}{hasFilters ? ' (filtrées)' : ' en base'}.</>
+            <>{totalCount.toLocaleString('fr-FR')} entreprise{totalCount > 1 ? 's' : ''}{hasFilters ? ' (filtrées)' : userIsAdmin ? ' en base' : ' liées à vous'}.</>
           ) : (
             <span className="inline-block h-4 w-48 animate-pulse rounded bg-muted" />
           )}
