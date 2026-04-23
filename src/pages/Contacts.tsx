@@ -89,8 +89,21 @@ export default function Contacts() {
   const [scoreAsc, setScoreAsc] = useState(false)
   const [selected, setSelected] = useState<ContactRow | null>(null)
   const [relationOverrides, setRelationOverrides] = useState<Record<string, string>>({})
+  const [allowedContactIds, setAllowedContactIds] = useState<string[] | null>(null)
 
   const debouncedSearch = useDebouncedValue(search, 300)
+
+  // Non-admin: pre-fetch the set of contact ids this user has a relation with
+  useEffect(() => {
+    if (userIsAdmin || !membre?.id) return
+    supabase
+      .from('contacts_membres_relations')
+      .select('contact_id')
+      .eq('membre_id', membre.id)
+      .then(({ data }) => {
+        setAllowedContactIds((data ?? []).map(r => r.contact_id as string))
+      })
+  }, [userIsAdmin, membre?.id])
 
   const hasActiveFilters = hierarchieFilter !== 'all' || personaFilter !== 'all' || statutFilter !== 'all' || entrepriseLinkFilter !== 'all' || tierFilter !== 'all' || search.trim() !== ''
 
@@ -124,15 +137,12 @@ export default function Contacts() {
   const { data: contacts, loading, refetch } = useSupabaseQuery<ContactRow[]>(
     () => {
       const joinType = tierFilter !== 'all' ? 'entreprises!inner(tier)' : 'entreprises(tier)'
-      const relationsJoin = restrictToMembreId ? ', contacts_membres_relations!inner(membre_id)' : ''
-      const selectStr = `id, first_name, last_name, position, company_name, location, linkedin_url, id_url_linkedin, email, persona, hierarchie, statut_contact, niveau_de_relation, scoring, nb_personnes_digi_relation, contact_digi, entreprise_id, owner_membre_id, ${joinType}${relationsJoin}`
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       let query = supabase
         .from('contacts')
-        .select(selectStr as unknown as '*')
+        .select(`id, first_name, last_name, position, company_name, location, linkedin_url, id_url_linkedin, email, persona, hierarchie, statut_contact, niveau_de_relation, scoring, nb_personnes_digi_relation, contact_digi, entreprise_id, owner_membre_id, ${joinType}`)
         .order('scoring', { ascending: scoreAsc })
 
-      if (restrictToMembreId) query = query.eq('contacts_membres_relations.membre_id', restrictToMembreId)
+      if (restrictToMembreId) query = query.in('id', allowedContactIds ?? [])
       if (entrepriseFilter) query = query.eq('entreprise_id', entrepriseFilter)
       if (statutFilter !== 'all') query = query.eq('statut_contact', statutFilter)
       if (hierarchieFilter !== 'all') query = query.eq('hierarchie', hierarchieFilter)
@@ -148,19 +158,17 @@ export default function Contacts() {
 
       return query.range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1)
     },
-    [page, hierarchieFilter, personaFilter, statutFilter, entrepriseLinkFilter, tierFilter, scoreAsc, debouncedSearch, entrepriseFilter, restrictToMembreId]
+    [page, hierarchieFilter, personaFilter, statutFilter, entrepriseLinkFilter, tierFilter, scoreAsc, debouncedSearch, entrepriseFilter, restrictToMembreId, allowedContactIds]
   )
 
   const { data: countResult } = useSupabaseQuery<{ count: number }[]>(
     async () => {
       const joinType = tierFilter !== 'all' ? 'entreprises!inner(tier)' : 'entreprises(tier)'
-      const relationsJoin = restrictToMembreId ? ', contacts_membres_relations!inner(membre_id)' : ''
-      const countSelectStr = `id, ${joinType}${relationsJoin}`
       let query = supabase
         .from('contacts')
-        .select(countSelectStr as unknown as '*', { count: 'exact', head: true })
+        .select(`id, ${joinType}`, { count: 'exact', head: true })
 
-      if (restrictToMembreId) query = query.eq('contacts_membres_relations.membre_id', restrictToMembreId)
+      if (restrictToMembreId) query = query.in('id', allowedContactIds ?? [])
       if (entrepriseFilter) query = query.eq('entreprise_id', entrepriseFilter)
       if (statutFilter !== 'all') query = query.eq('statut_contact', statutFilter)
       if (hierarchieFilter !== 'all') query = query.eq('hierarchie', hierarchieFilter)
@@ -177,7 +185,7 @@ export default function Contacts() {
       const res = await query
       return { data: [{ count: res.count ?? 0 }], error: res.error }
     },
-    [hierarchieFilter, personaFilter, statutFilter, entrepriseLinkFilter, tierFilter, debouncedSearch, entrepriseFilter, restrictToMembreId]
+    [hierarchieFilter, personaFilter, statutFilter, entrepriseLinkFilter, tierFilter, debouncedSearch, entrepriseFilter, restrictToMembreId, allowedContactIds]
   )
 
   const [entrepriseContactCounts, setEntrepriseContactCounts] = useState<Map<string, number>>(new Map())
@@ -327,7 +335,7 @@ export default function Contacts() {
         )}
       </div>
 
-      {loading ? (
+      {loading || (!userIsAdmin && allowedContactIds === null) ? (
         <div className="flex items-center justify-center h-64">
           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
         </div>
