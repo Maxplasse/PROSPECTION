@@ -89,6 +89,7 @@ export default function Contacts() {
   const [scoreAsc, setScoreAsc] = useState(false)
   const [selected, setSelected] = useState<ContactRow | null>(null)
   const [relationOverrides, setRelationOverrides] = useState<Record<string, string>>({})
+  const [onlyMine, setOnlyMine] = useState(false)
   const debouncedSearch = useDebouncedValue(search, 300)
 
   const hasActiveFilters = hierarchieFilter !== 'all' || personaFilter !== 'all' || statutFilter !== 'all' || entrepriseLinkFilter !== 'all' || tierFilter !== 'all' || search.trim() !== ''
@@ -118,7 +119,8 @@ export default function Contacts() {
       })
   }, [contactParam])
 
-  const restrictToMembreId = !userIsAdmin ? membre?.id ?? null : null
+  const restrictToMembreId = !userIsAdmin || onlyMine ? membre?.id ?? null : null
+  const scoped = restrictToMembreId !== null
 
   const { data: contacts, loading, refetch } = useSupabaseQuery<ContactRow[]>(
     async () => {
@@ -319,6 +321,20 @@ export default function Contacts() {
           </SelectContent>
         </Select>
 
+        {userIsAdmin && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => { setOnlyMine(v => !v); setPage(0) }}
+            className={onlyMine ? activeClass : ''}
+            title={onlyMine ? 'Voir tous les contacts' : 'Voir uniquement mes contacts'}
+          >
+            <Users className="h-4 w-4" />
+            Mes contacts
+          </Button>
+        )}
+
         <Select value={entrepriseLinkFilter} onValueChange={(v) => { setEntrepriseLinkFilter(v as string); setPage(0) }}>
           <SelectTrigger className={entrepriseLinkFilter !== 'all' ? activeClass : ''}>
             <SelectValue>
@@ -358,7 +374,7 @@ export default function Contacts() {
                 <TableHead>Contact</TableHead>
                 <TableHead>Entreprise</TableHead>
                 <TableHead>Statut</TableHead>
-                {!userIsAdmin && <TableHead>Relation</TableHead>}
+                {scoped && <TableHead>Relation</TableHead>}
                 <TableHead className="text-center">Digi</TableHead>
                 <TableHead className="text-center">Score</TableHead>
               </TableRow>
@@ -366,7 +382,7 @@ export default function Contacts() {
             <TableBody>
               {Array.from({ length: 10 }).map((_, i) => (
                 <TableRow key={i}>
-                  {Array.from({ length: userIsAdmin ? 5 : 6 }).map((_, j) => (
+                  {Array.from({ length: scoped ? 6 : 5 }).map((_, j) => (
                     <TableCell key={j}>
                       <div className="h-4 bg-muted rounded animate-pulse" />
                     </TableCell>
@@ -393,7 +409,7 @@ export default function Contacts() {
                   <TableHead>Contact</TableHead>
                   <TableHead>Entreprise</TableHead>
                   <TableHead>Statut</TableHead>
-                  {!userIsAdmin && <TableHead>Relation</TableHead>}
+                  {scoped && <TableHead>Relation</TableHead>}
                   <TableHead className="text-center">Digi</TableHead>
                   <TableHead className="text-center">
                     <button
@@ -458,7 +474,7 @@ export default function Contacts() {
                           <span className="text-xs text-muted-foreground">—</span>
                         )}
                       </TableCell>
-                      {!userIsAdmin && (() => {
+                      {scoped && (() => {
                       const currentRelation = relationOverrides[c.id] ?? c.niveau_de_relation ?? 'Non renseigné'
                       const isMissing = !currentRelation || currentRelation === 'Non renseigné'
                       return (
