@@ -487,9 +487,10 @@ export default function Contacts() {
                             const newVal = e.target.value
                             setRelationOverrides(prev => ({ ...prev, [c.id]: newVal }))
                             supabase
-                              .from('contacts')
+                              .from('contacts_membres_relations')
                               .update({ niveau_de_relation: newVal })
-                              .eq('id', c.id)
+                              .eq('membre_id', restrictToMembreId!)
+                              .eq('contact_id', c.id)
                               .then(({ error }) => {
                                 if (error) {
                                   setRelationOverrides(prev => {
