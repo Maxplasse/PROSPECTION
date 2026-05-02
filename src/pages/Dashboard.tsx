@@ -66,33 +66,12 @@ export default function Dashboard() {
   const { data: secteurStats } = useSupabaseQuery<{ secteur_digi: string; count: number }[]>(
     async () => {
       const { data, error } = await supabase.rpc('get_secteur_stats')
-      if (error) {
-        // Fallback: fetch all secteur_digi with pagination to avoid 1000 limit
-        const all: { secteur_digi: string | null }[] = []
-        let offset = 0
-        const PAGE = 1000
-        while (true) {
-          const { data: raw, error: rawErr } = await supabase
-            .from('entreprises')
-            .select('secteur_digi')
-            .range(offset, offset + PAGE - 1)
-          if (rawErr) return { data: null, error: rawErr }
-          if (!raw || raw.length === 0) break
-          all.push(...raw)
-          if (raw.length < PAGE) break
-          offset += PAGE
-        }
-        const counts: Record<string, number> = {}
-        all.forEach(e => {
-          const s = e.secteur_digi || 'Non classé'
-          counts[s] = (counts[s] || 0) + 1
-        })
-        const result = Object.entries(counts)
-          .map(([secteur_digi, count]) => ({ secteur_digi, count }))
-          .sort((a, b) => b.count - a.count)
-        return { data: result, error: null }
+      if (error) return { data: null, error }
+      const rows = (data ?? []) as { secteur_digi: string; count: number | string }[]
+      return {
+        data: rows.map(r => ({ secteur_digi: r.secteur_digi, count: Number(r.count) })),
+        error: null,
       }
-      return { data, error }
     }
   )
 
@@ -100,6 +79,7 @@ export default function Dashboard() {
     () => supabase
       .from('contacts')
       .select('id, first_name, last_name, position, company_name, nb_personnes_digi_relation, scoring, created_at')
+      .gt('nb_personnes_digi_relation', 0)
       .order('nb_personnes_digi_relation', { ascending: false })
       .limit(10)
   )

@@ -211,16 +211,27 @@ export default function Contacts() {
     const entIds = [...new Set(contacts.map(c => c.entreprise_id).filter(Boolean))] as string[]
     if (entIds.length === 0) return
 
-    supabase
-      .rpc('contact_counts_for_entreprises', { ids: entIds })
-      .then(({ data }) => {
-        if (!data) return
-        const map = new Map<string, number>()
-        for (const row of data as { entreprise_id: string; cnt: number }[]) {
-          map.set(row.entreprise_id, Number(row.cnt))
-        }
-        setEntrepriseContactCounts(map)
-      })
+    let cancelled = false
+    const idle = (cb: () => void) =>
+      'requestIdleCallback' in window
+        ? (window as unknown as { requestIdleCallback: (cb: () => void) => number }).requestIdleCallback(cb)
+        : setTimeout(cb, 200)
+
+    idle(() => {
+      if (cancelled) return
+      supabase
+        .rpc('contact_counts_for_entreprises', { ids: entIds })
+        .then(({ data }) => {
+          if (cancelled || !data) return
+          const map = new Map<string, number>()
+          for (const row of data as { entreprise_id: string; cnt: number }[]) {
+            map.set(row.entreprise_id, Number(row.cnt))
+          }
+          setEntrepriseContactCounts(map)
+        })
+    })
+
+    return () => { cancelled = true }
   }, [contacts])
 
   const totalCount = countResult?.[0]?.count ?? 0

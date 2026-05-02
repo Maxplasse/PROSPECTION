@@ -144,9 +144,17 @@ export default function Entreprises() {
 
   const restrictToMembreId = !userIsAdmin ? membre?.id ?? null : null
 
-  const { data: amList } = useSupabaseQuery<{ id: string; full_name: string }[]>(
-    () => supabase.from('membres_digilityx').select('id, full_name').eq('role', 'account_manager').order('full_name')
-  )
+  const [amList, setAmList] = useState<{ id: string; full_name: string }[] | null>(null)
+  const amFetchedRef = useRef(false)
+  function ensureAmList() {
+    if (amFetchedRef.current) return
+    amFetchedRef.current = true
+    supabase.from('membres_digilityx').select('id, full_name').eq('role', 'account_manager').order('full_name')
+      .then(({ data }) => setAmList((data ?? []) as { id: string; full_name: string }[]))
+  }
+  useEffect(() => {
+    if (amFilter !== 'all') ensureAmList()
+  }, [amFilter])
 
   const hasActiveFilters = tierFilter !== 'all' || statutFilter !== 'all' || secteurFilter.length > 0 || clientFilter !== 'all' || amFilter !== 'all' || search.trim() !== ''
   const activeClass = 'border-primary bg-primary/10 text-primary'
@@ -258,7 +266,9 @@ export default function Entreprises() {
         return { data: mapped, error }
       }
       return applyFilters(
-        supabase.from('entreprises').select('*, parent:parent_company_id(id, company_name), account_manager:account_manager_id(id, full_name)').order('company_name', { ascending: true })
+        supabase.from('entreprises').select(
+          'id, company_name, company_domain, company_id_linkedin, company_employee_count, company_employee_range, company_location, company_typology, secteur_digi, linkedin_industry, tier, statut_entreprise, statut_digi, icp, scoring_icp, justification, is_digi_client, is_subsidiary, is_parent_entity, account_manager_id, parent_company_id, source_acquisition, parent:parent_company_id(id, company_name), account_manager:account_manager_id(id, full_name)'
+        ).order('company_name', { ascending: true })
       ).range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1)
     },
     [page, tierFilter, statutFilter, secteurFilter, clientFilter, amFilter, debouncedSearch, restrictToMembreId]
@@ -354,7 +364,7 @@ export default function Entreprises() {
           activeClass={activeClass}
         />
 
-        <Select value={amFilter} onValueChange={(v) => { setAmFilter(v as string); setPage(0) }}>
+        <Select value={amFilter} onValueChange={(v) => { setAmFilter(v as string); setPage(0) }} onOpenChange={(open) => { if (open) ensureAmList() }}>
           <SelectTrigger className={amFilter !== 'all' ? activeClass : ''}>
             <SelectValue>{amFilter === 'all' ? 'Tout AM' : amList?.find(m => m.id === amFilter)?.full_name ?? amFilter}</SelectValue>
           </SelectTrigger>

@@ -50,34 +50,23 @@ export interface DashboardStats {
 
 export function useDashboardStats() {
   return useSupabaseQuery<DashboardStats>(async () => {
-    const [entreprises, contacts, notifications] = await Promise.all([
-      supabase.from('entreprises').select('id, tier, statut_entreprise', { count: 'exact', head: true }),
-      supabase.from('contacts').select('id, statut_contact', { count: 'exact', head: true }),
-      supabase.from('notifications').select('id', { count: 'exact', head: true }),
-    ])
-
-    const [dealsRes, tier1Res, tier2Res, tier3Res, aContacterRes, contactesRes] = await Promise.all([
-      supabase.from('entreprises').select('id', { count: 'exact', head: true }).eq('statut_entreprise', 'Deal en cours'),
-      supabase.from('entreprises').select('id', { count: 'exact', head: true }).eq('tier', 'Tier 1'),
-      supabase.from('entreprises').select('id', { count: 'exact', head: true }).eq('tier', 'Tier 2'),
-      supabase.from('entreprises').select('id', { count: 'exact', head: true }).eq('tier', 'Tier 3'),
-      supabase.from('contacts').select('id', { count: 'exact', head: true }).eq('statut_contact', 'À contacter'),
-      supabase.from('contacts').select('id', { count: 'exact', head: true }).eq('statut_contact', 'Contacté'),
-    ])
-
+    const { data, error } = await supabase.rpc('get_dashboard_stats').single()
+    if (error || !data) return { data: null, error }
+    const r = data as Record<keyof DashboardStats, number | string>
+    const num = (v: number | string | null | undefined) => Number(v ?? 0)
     return {
       data: {
-        total_entreprises: entreprises.count ?? 0,
-        total_contacts: contacts.count ?? 0,
-        total_notifications: notifications.count ?? 0,
-        deals_en_cours: dealsRes.count ?? 0,
-        contacts_a_contacter: aContacterRes.count ?? 0,
-        contacts_contactes: contactesRes.count ?? 0,
-        tier1: tier1Res.count ?? 0,
-        tier2: tier2Res.count ?? 0,
-        tier3: tier3Res.count ?? 0,
+        total_entreprises: num(r.total_entreprises),
+        total_contacts: num(r.total_contacts),
+        total_notifications: num(r.total_notifications),
+        deals_en_cours: num(r.deals_en_cours),
+        contacts_a_contacter: num(r.contacts_a_contacter),
+        contacts_contactes: num(r.contacts_contactes),
+        tier1: num(r.tier1),
+        tier2: num(r.tier2),
+        tier3: num(r.tier3),
       },
-      error: entreprises.error || contacts.error || notifications.error || null,
+      error: null,
     }
   })
 }
