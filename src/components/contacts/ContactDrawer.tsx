@@ -4,8 +4,9 @@ import { supabase } from '@/lib/supabase'
 import { Drawer, FieldGroup, SelectField, TextField } from '@/components/ui/drawer'
 import { Button } from '@/components/ui/button'
 import { scoreContact } from '@/lib/scoring/score-contact'
-import type {
-  Persona, Hierarchie, StatutContact, NiveauRelation,
+import {
+  NIVEAU_RELATION_DESCRIPTIONS,
+  type Persona, type Hierarchie, type StatutContact, type NiveauRelation,
 } from '@/lib/types'
 
 const PERSONAS: Persona[] = [
@@ -436,10 +437,11 @@ export function ContactDrawer({ contact, onClose, onSaved, isAdmin: adminMode = 
                         <select
                           value={currentLevel}
                           onChange={e => setRelationChanges(prev => ({ ...prev, [r.id]: e.target.value }))}
+                          title={NIVEAU_RELATION_DESCRIPTIONS[currentLevel as NiveauRelation] ?? ''}
                           className="h-7 flex-1 rounded-md border border-input bg-transparent px-2 text-xs outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
                         >
                           {NIVEAUX_RELATION.map(n => (
-                            <option key={n} value={n}>{n}</option>
+                            <option key={n} value={n} title={NIVEAU_RELATION_DESCRIPTIONS[n]}>{n}</option>
                           ))}
                         </select>
                       </div>

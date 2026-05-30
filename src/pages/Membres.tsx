@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { NIVEAU_RELATION_DESCRIPTIONS, type NiveauRelation } from '@/lib/types'
 
 interface MembreStats {
   id: string
@@ -507,7 +508,12 @@ export default function Membres() {
                         <TableCell className="text-sm">{c.company_name ?? '—'}</TableCell>
                         <TableCell>
                           {c.niveau_de_relation && c.niveau_de_relation !== 'Non renseigné' ? (
-                            <Badge variant="outline">{c.niveau_de_relation}</Badge>
+                            <Badge
+                              variant="outline"
+                              title={NIVEAU_RELATION_DESCRIPTIONS[c.niveau_de_relation as NiveauRelation] ?? ''}
+                            >
+                              {c.niveau_de_relation}
+                            </Badge>
                           ) : <Badge variant="destructive" className="text-xs">À qualifier</Badge>}
                         </TableCell>
                         <TableCell>

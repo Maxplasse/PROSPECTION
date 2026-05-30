@@ -38,6 +38,17 @@ export type NiveauRelation =
   | 'Inconnu'
   | 'Non renseigné'
 
+export const NIVEAU_RELATION_DESCRIPTIONS: Record<NiveauRelation, string> = {
+  'Ami': 'Vous êtes ami, vous vous connaissez très bien.',
+  'Cercle familial': 'Cette personne fait partie de votre famille.',
+  'Ancien collègue': 'Vous avez déjà travaillé ensemble au sein de la même entreprise.',
+  'Alumni': 'Vous avez fréquenté la même école / université.',
+  'Partenaire business': 'Vous avez déjà travaillé ensemble dans un contexte professionnel (ancien presta, ancien client, client actuel…).',
+  'Connaissance': "Vous savez qui c'est, mais vous n'avez pas noué plus d'affinité que ça avec cette personne.",
+  'Inconnu': "Cette personne est dans votre réseau, mais vous ne savez même pas qui c'est.",
+  'Non renseigné': 'Niveau de relation non encore qualifié.',
+}
+
 export type StatutNotification = 'Envoyée' | 'Lue' | 'En attente'
 
 export type NotificationType =

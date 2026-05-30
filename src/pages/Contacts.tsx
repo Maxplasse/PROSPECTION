@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams, Link } from 'react-router-dom'
-import { Users, Search, ChevronLeft, ChevronRight, X, Building2, FilterX, ArrowUp, ArrowDown, ExternalLink } from 'lucide-react'
+import { Users, Search, ChevronLeft, ChevronRight, X, Building2, FilterX, ArrowUp, ArrowDown, ExternalLink, Info } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useSupabaseQuery } from '@/lib/hooks/use-supabase'
 import { useDebouncedValue } from '@/lib/hooks/use-debounced-value'
@@ -15,7 +15,27 @@ import {
 import { ContactDrawer } from '@/components/contacts/ContactDrawer'
 import { scoreContact } from '@/lib/scoring/score-contact'
 import { useAuth, isAdmin } from '@/lib/auth'
-import type { Hierarchie, Persona, NiveauRelation } from '@/lib/types'
+import { NIVEAU_RELATION_DESCRIPTIONS, type Hierarchie, type Persona, type NiveauRelation } from '@/lib/types'
+
+const RELATION_GLOSSARY = (Object.entries(NIVEAU_RELATION_DESCRIPTIONS) as [NiveauRelation, string][])
+  .filter(([k]) => k !== 'Non renseigné')
+  .map(([k, v]) => `• ${k} : ${v}`)
+  .join('\n')
+
+function RelationHeader() {
+  return (
+    <span className="inline-flex items-center gap-1">
+      Relation
+      <span
+        title={RELATION_GLOSSARY}
+        aria-label="Définitions des niveaux de relation"
+        className="inline-flex cursor-help"
+      >
+        <Info className="h-3.5 w-3.5 text-muted-foreground" />
+      </span>
+    </span>
+  )
+}
 
 interface ContactRow {
   id: string
@@ -86,13 +106,14 @@ export default function Contacts() {
   const [statutFilter, setStatutFilter] = useState<string>(statutParam ?? 'all')
   const [entrepriseLinkFilter, setEntrepriseLinkFilter] = useState<string>('all')
   const [tierFilter, setTierFilter] = useState<string>(!userIsAdmin ? 'Tier 1' : 'all')
+  const [relationFilter, setRelationFilter] = useState<string>('all')
   const [scoreAsc, setScoreAsc] = useState(false)
   const [selected, setSelected] = useState<ContactRow | null>(null)
   const [relationOverrides, setRelationOverrides] = useState<Record<string, string>>({})
   const [onlyMine, setOnlyMine] = useState(false)
   const debouncedSearch = useDebouncedValue(search, 300)
 
-  const hasActiveFilters = hierarchieFilter !== 'all' || personaFilter !== 'all' || statutFilter !== 'all' || entrepriseLinkFilter !== 'all' || tierFilter !== 'all' || search.trim() !== ''
+  const hasActiveFilters = hierarchieFilter !== 'all' || personaFilter !== 'all' || statutFilter !== 'all' || entrepriseLinkFilter !== 'all' || tierFilter !== 'all' || relationFilter !== 'all' || search.trim() !== ''
 
   function clearAllFilters() {
     setHierarchieFilter('all')
@@ -100,6 +121,7 @@ export default function Contacts() {
     setStatutFilter('all')
     setEntrepriseLinkFilter('all')
     setTierFilter('all')
+    setRelationFilter('all')
     setSearch('')
     setPage(0)
   }
@@ -133,6 +155,7 @@ export default function Contacts() {
           p_persona: personaFilter === 'all' ? null : personaFilter,
           p_entreprise_link: entrepriseLinkFilter === 'all' ? null : entrepriseLinkFilter,
           p_entreprise_id: entrepriseFilter ?? null,
+          p_niveau_relation: relationFilter === 'all' ? null : relationFilter,
           p_search: debouncedSearch.trim() || null,
           p_order_asc: scoreAsc,
           p_offset: page * PAGE_SIZE,
@@ -162,7 +185,7 @@ export default function Contacts() {
 
       return query.range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1)
     },
-    [page, hierarchieFilter, personaFilter, statutFilter, entrepriseLinkFilter, tierFilter, scoreAsc, debouncedSearch, entrepriseFilter, restrictToMembreId]
+    [page, hierarchieFilter, personaFilter, statutFilter, entrepriseLinkFilter, tierFilter, relationFilter, scoreAsc, debouncedSearch, entrepriseFilter, restrictToMembreId]
   )
 
   const { data: countResult } = useSupabaseQuery<{ count: number }[]>(
@@ -176,6 +199,7 @@ export default function Contacts() {
           p_persona: personaFilter === 'all' ? null : personaFilter,
           p_entreprise_link: entrepriseLinkFilter === 'all' ? null : entrepriseLinkFilter,
           p_entreprise_id: entrepriseFilter ?? null,
+          p_niveau_relation: relationFilter === 'all' ? null : relationFilter,
           p_search: debouncedSearch.trim() || null,
         })
         return { data: [{ count: Number(data ?? 0) }], error }
@@ -202,7 +226,7 @@ export default function Contacts() {
       const res = await query
       return { data: [{ count: res.count ?? 0 }], error: res.error }
     },
-    [hierarchieFilter, personaFilter, statutFilter, entrepriseLinkFilter, tierFilter, debouncedSearch, entrepriseFilter, restrictToMembreId]
+    [hierarchieFilter, personaFilter, statutFilter, entrepriseLinkFilter, tierFilter, relationFilter, debouncedSearch, entrepriseFilter, restrictToMembreId]
   )
 
   const [entrepriseContactCounts, setEntrepriseContactCounts] = useState<Map<string, number>>(new Map())
@@ -332,6 +356,31 @@ export default function Contacts() {
           </SelectContent>
         </Select>
 
+        {scoped && (
+          <Select value={relationFilter} onValueChange={(v) => { setRelationFilter(v as string); setPage(0) }}>
+            <SelectTrigger className={relationFilter !== 'all' ? activeClass : ''}>
+              <SelectValue>{relationFilter === 'all' ? 'Toute relation' : relationFilter}</SelectValue>
+            </SelectTrigger>
+            <SelectContent alignItemWithTrigger={false} className="min-w-[320px]">
+              <SelectItem value="all">Toute relation</SelectItem>
+              {(['Non renseigné','Ami','Cercle familial','Ancien collègue','Alumni','Partenaire business','Connaissance','Inconnu'] as NiveauRelation[]).map(level => (
+                <SelectItem
+                  key={level}
+                  value={level}
+                  className="group items-start py-1.5"
+                >
+                  <div className="flex flex-col items-start gap-0.5">
+                    <span className="text-sm leading-tight">{level}</span>
+                    <span className="hidden group-data-[highlighted]:block text-[11px] italic text-muted-foreground leading-snug whitespace-normal max-w-[300px]">
+                      {NIVEAU_RELATION_DESCRIPTIONS[level]}
+                    </span>
+                  </div>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+
         {userIsAdmin && (
           <Button
             type="button"
@@ -385,7 +434,7 @@ export default function Contacts() {
                 <TableHead>Contact</TableHead>
                 <TableHead>Entreprise</TableHead>
                 <TableHead>Statut</TableHead>
-                {scoped && <TableHead>Relation</TableHead>}
+                {scoped && <TableHead><RelationHeader /></TableHead>}
                 <TableHead className="text-center">Digi</TableHead>
                 <TableHead className="text-center">Score</TableHead>
               </TableRow>
@@ -420,7 +469,7 @@ export default function Contacts() {
                   <TableHead>Contact</TableHead>
                   <TableHead>Entreprise</TableHead>
                   <TableHead>Statut</TableHead>
-                  {scoped && <TableHead>Relation</TableHead>}
+                  {scoped && <TableHead><RelationHeader /></TableHead>}
                   <TableHead className="text-center">Digi</TableHead>
                   <TableHead className="text-center">
                     <button
@@ -490,12 +539,10 @@ export default function Contacts() {
                       const isMissing = !currentRelation || currentRelation === 'Non renseigné'
                       return (
                       <TableCell>
-                        <select
+                        <Select
                           value={currentRelation}
-                          onClick={e => e.stopPropagation()}
-                          onChange={(e) => {
-                            e.stopPropagation()
-                            const newVal = e.target.value
+                          onValueChange={(v) => {
+                            const newVal = v as string
                             setRelationOverrides(prev => ({ ...prev, [c.id]: newVal }))
                             supabase
                               .from('contacts_membres_relations')
@@ -513,19 +560,35 @@ export default function Contacts() {
                                 }
                               })
                           }}
-                          className={`h-7 rounded-md border border-input bg-transparent px-2 text-xs outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 ${
-                            isMissing ? 'text-destructive border-destructive/50' : ''
-                          }`}
                         >
-                          <option value="Non renseigné">Non renseigné</option>
-                          <option value="Ami">Ami</option>
-                          <option value="Cercle familial">Cercle familial</option>
-                          <option value="Ancien collègue">Ancien collègue</option>
-                          <option value="Alumni">Alumni</option>
-                          <option value="Partenaire business">Partenaire business</option>
-                          <option value="Connaissance">Connaissance</option>
-                          <option value="Inconnu">Inconnu</option>
-                        </select>
+                          <SelectTrigger
+                            size="sm"
+                            onClick={e => e.stopPropagation()}
+                            className={`text-xs ${isMissing ? 'text-destructive border-destructive/50' : ''}`}
+                          >
+                            <SelectValue>{currentRelation}</SelectValue>
+                          </SelectTrigger>
+                          <SelectContent
+                            onClick={e => e.stopPropagation()}
+                            alignItemWithTrigger={false}
+                            className="min-w-[320px]"
+                          >
+                            {(['Non renseigné','Ami','Cercle familial','Ancien collègue','Alumni','Partenaire business','Connaissance','Inconnu'] as NiveauRelation[]).map(level => (
+                              <SelectItem
+                                key={level}
+                                value={level}
+                                className="group items-start py-1.5"
+                              >
+                                <div className="flex flex-col items-start gap-0.5">
+                                  <span className="text-sm leading-tight">{level}</span>
+                                  <span className="hidden group-data-[highlighted]:block text-[11px] italic text-muted-foreground leading-snug whitespace-normal max-w-[300px]">
+                                    {NIVEAU_RELATION_DESCRIPTIONS[level]}
+                                  </span>
+                                </div>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </TableCell>
                       )
                       })()}
