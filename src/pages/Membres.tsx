@@ -152,9 +152,11 @@ export default function Membres() {
     supabase
       .from('membres_digilityx')
       .select('id, full_name, slack_user_id')
+      .eq('actif', true)
+      .eq('partager_contacts', true)
       .order('full_name')
       .then(({ data }) => {
-        const list = data ?? []
+        const list = (data ?? []) as { id: string; full_name: string; slack_user_id: string | null }[]
         setAllMembres(list)
         setMembresCount(list.length)
       })

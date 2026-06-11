@@ -168,6 +168,7 @@ export default function Contacts() {
       let query = supabase
         .from('contacts')
         .select(`id, first_name, last_name, position, company_name, location, linkedin_url, id_url_linkedin, email, persona, hierarchie, statut_contact, niveau_de_relation, scoring, nb_personnes_digi_relation, contact_digi, entreprise_id, owner_membre_id, ${joinType}`)
+        .eq('masque', false)
         .order('scoring', { ascending: scoreAsc })
 
       if (entrepriseFilter) query = query.eq('entreprise_id', entrepriseFilter)
@@ -209,6 +210,7 @@ export default function Contacts() {
       let query = supabase
         .from('contacts')
         .select(`id, ${joinType}`, { count: 'exact', head: true })
+        .eq('masque', false)
 
       if (entrepriseFilter) query = query.eq('entreprise_id', entrepriseFilter)
       if (statutFilter !== 'all') query = query.eq('statut_contact', statutFilter)
