@@ -135,6 +135,7 @@ export function ContactDrawer({ contact, onClose, onSaved, isAdmin: adminMode = 
         supabase
           .from('membres_digilityx')
           .select('id, full_name')
+          .eq('actif', true)
           .order('full_name'),
         contact.entreprise_id
           ? supabase
