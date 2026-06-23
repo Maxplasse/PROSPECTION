@@ -84,12 +84,20 @@ export function getHierarchie(pos) {
 export function getPersona(pos, hier) {
   const p = pos.toLowerCase()
 
-  // Acheteur spécialisé prestations intellectuelles / marketing / digital
-  if (/\bacheteur|\bacheteuse/.test(p)) {
+  // RH / Human Resources → toujours Hors expertise Digi (fix: Chief HR, Chargée dev RH)
+  if (
+    /\b(ressources\s+humaines|human\s+resources|chief\s+people|people\s+officer|chief\s+hr)\b/.test(p) ||
+    /\b(chro|drh)\b/.test(p)
+  ) return 'Hors expertise Digi'
+
+  // Acheteur / Achats
+  if (/\b(acheteur|acheteuse)\b/.test(p)) {
     if (/\b(prestations? intellectuelles?|communication|marketing|digital|conseil|informatique|it\b|service)/.test(p))
       return 'Acheteur'
     return 'Hors expertise Digi'
   }
+  // Responsable/Directeur Achats (indirects, groupe…) → Acheteur
+  if (/\bachats?\b/.test(p)) return 'Acheteur'
 
   // Design
   if (/\b(design(er)?|ux\b|ui\b|graphi|motion|art director|expérience utilisateur|illustrat)/.test(p))
@@ -101,15 +109,17 @@ export function getPersona(pos, hier) {
     /\b(marketing|webmarketing|brand|content|growth|seo|sea|crm|acquisition|influence|social media|community|e[-]?reputation|media|médias|analyste web|web analyst|web analytics|e.?commerce|ecommerce|e.?store|amazon|expérience client|customer experience|customer engagement)/.test(p)
   )) return 'Marketing'
 
+  // Commercial — avant Produit pour éviter que "développement" parte dans Produit
+  if (
+    /\b(commercial|sales|account|business develop|bizdev|vente|revenue|customer success|key account|partenariat|partnership|pre[- ]?sales|avant[- ]?vente)/.test(p) ||
+    /\bdéveloppement\s+(international|commercial|des\s+affaires|d['']affaires|business)\b/.test(p)
+  ) return 'Commercial'
+
   // Produit
   if (
     /\b(product|produit|scrum|agile|digital|transformation|data|architect|tech|devops|innovation|numérique|software|développe|ingénieur|infrastructure|cloud|erp|si\b|ai expert|ai officer|ai specialist|intelligence artificielle|\bweb\b)/.test(p) ||
     /\bdigitau?x\b/.test(p)
   ) return 'Produit'
-
-  // Commercial
-  if (/\b(commercial|sales|account|business develop|bizdev|vente|revenue|customer success|key account|partenariat|partnership|pre[- ]?sales|avant[- ]?vente)/.test(p))
-    return 'Commercial'
 
   // Dirigeant = COMEX sans domaine fonctionnel identifiable
   if (hier === 'COMEX') return 'Dirigeant'
