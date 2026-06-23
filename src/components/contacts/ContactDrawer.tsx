@@ -10,9 +10,9 @@ import {
 } from '@/lib/types'
 
 const PERSONAS: Persona[] = [
-  'Dirigeant', 'Marketing', 'Produit', 'Design', 'Hors expertise Digi',
+  'Dirigeant', 'Marketing', 'Produit', 'Design', 'Commercial', 'Acheteur', 'Hors expertise Digi',
 ]
-const HIERARCHIES: Hierarchie[] = ['COMEX', 'Directeur', 'Manager', 'Opérationnel']
+const HIERARCHIES: Hierarchie[] = ['COMEX', 'Directeur', 'Manager', 'Opérationnel', 'Stagiaire/Alternant']
 const STATUTS: StatutContact[] = [
   'À contacter', 'Contacté', 'Intéressé',
   'Pas intéressé', 'Client',

@@ -17,9 +17,11 @@ export type Persona =
   | 'Marketing'
   | 'Produit'
   | 'Design'
+  | 'Commercial'
+  | 'Acheteur'
   | 'Hors expertise Digi'
 
-export type Hierarchie = 'COMEX' | 'Directeur' | 'Manager' | 'Opérationnel'
+export type Hierarchie = 'COMEX' | 'Directeur' | 'Manager' | 'Opérationnel' | 'Stagiaire/Alternant'
 
 export type StatutContact =
   | 'À contacter'
