@@ -314,6 +314,7 @@ export default function Contacts() {
             <SelectItem value="Directeur">Directeur</SelectItem>
             <SelectItem value="Manager">Manager</SelectItem>
             <SelectItem value="Opérationnel">Opérationnel</SelectItem>
+            <SelectItem value="Stagiaire/Alternant">Stagiaire/Alternant</SelectItem>
           </SelectContent>
         </Select>
 
@@ -327,6 +328,8 @@ export default function Contacts() {
             <SelectItem value="Marketing">Marketing</SelectItem>
             <SelectItem value="Produit">Produit</SelectItem>
             <SelectItem value="Design">Design</SelectItem>
+            <SelectItem value="Commercial">Commercial</SelectItem>
+            <SelectItem value="Acheteur">Acheteur</SelectItem>
             <SelectItem value="Hors expertise Digi">Hors expertise</SelectItem>
           </SelectContent>
         </Select>
