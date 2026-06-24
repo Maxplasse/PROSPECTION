@@ -106,7 +106,7 @@ export function getPersona(pos, hier) {
   // Marketing (hors Talent Acquisition)
   const isTalentAcquisition = /\btalent\s+acquisition\b/.test(p)
   if (!isTalentAcquisition && (
-    /\b(marketing|webmarketing|brand|content|growth|seo|sea|crm|acquisition|influence|social media|community|e[-]?reputation|media|médias|analyste web|web analyst|web analytics|e.?commerce|ecommerce|e.?store|amazon|expérience client|customer experience|customer engagement)/.test(p)
+    /\b(marketing|webmarketing|brand|content|growth|seo|sea|crm|acquisition|influence|social media|community|e[-]?reputation|media|médias|analyste web|web analyst|web analytics|e.?commerce|ecommerce|e.?store|amazon|expérience client|customer experience|customer engagement|campaign)/.test(p)
   )) return 'Marketing'
 
   // Commercial — avant Produit pour éviter que "développement" parte dans Produit
@@ -115,9 +115,9 @@ export function getPersona(pos, hier) {
     /\bdéveloppement\s+(international|commercial|des\s+affaires|d['']affaires|business|clientèle|clients?)\b/.test(p)
   ) return 'Commercial'
 
-  // Produit
+  // Produit (product(?!ion) pour éviter que "production" matche)
   if (
-    /\b(product|produit|scrum|agile|digital|transformation|data|architect|tech|devops|innovation|numérique|software|développe|ingénieur|infrastructure|cloud|erp|si\b|ai expert|ai officer|ai specialist|intelligence artificielle|\bweb\b)/.test(p) ||
+    /\b(product(?!ion)|produit|scrum|agile|digital|transformation|data|architect|tech|devops|innovation|numérique|software|développe|ingénieur|infrastructure|cloud|erp|si\b|ops\b|\bit\b|ai expert|ai officer|ai specialist|intelligence artificielle|\bweb\b)/.test(p) ||
     /\bdigitau?x\b/.test(p)
   ) return 'Produit'
 
