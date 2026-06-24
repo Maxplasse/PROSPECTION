@@ -112,7 +112,7 @@ export function getPersona(pos, hier) {
   // Commercial — avant Produit pour éviter que "développement" parte dans Produit
   if (
     /\b(commercial|sales|account|business develop|bizdev|vente|revenue|customer success|key account|partenariat|partnership|pre[- ]?sales|avant[- ]?vente)/.test(p) ||
-    /\bdéveloppement\s+(international|commercial|des\s+affaires|d['']affaires|business)\b/.test(p)
+    /\bdéveloppement\s+(international|commercial|des\s+affaires|d['']affaires|business|clientèle|clients?)\b/.test(p)
   ) return 'Commercial'
 
   // Produit
