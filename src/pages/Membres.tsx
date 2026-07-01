@@ -143,6 +143,7 @@ export default function Membres() {
   const [membreTierFilter, setMembreTierFilter] = useState<string>('all')
   const [membreSecteurFilter, setMembreSecteurFilter] = useState<string[]>([])
   const [membreContacts, setMembreContacts] = useState<MembreContact[]>([])
+  const [totalMembreContacts, setTotalMembreContacts] = useState<number | null>(null)
   const [loadingMembreContacts, setLoadingMembreContacts] = useState(false)
   const [sendingSlack, setSendingSlack] = useState(false)
   const [slackSent, setSlackSent] = useState(false)
@@ -271,12 +272,15 @@ export default function Membres() {
     setMembreTierFilter('all')
     setMembreSecteurFilter([])
     setSlackSent(false)
-    supabase
-      .rpc('get_membre_contacts', { p_membre_id: selectedMembre })
-      .then(({ data }) => {
-        setMembreContacts((data ?? []) as MembreContact[])
-        setLoadingMembreContacts(false)
-      })
+    setTotalMembreContacts(null)
+    Promise.all([
+      supabase.rpc('get_membre_contacts', { p_membre_id: selectedMembre }),
+      supabase.rpc('count_contacts_for_membre', { p_membre_id: selectedMembre }),
+    ]).then(([{ data }, { data: count }]) => {
+      setMembreContacts((data ?? []) as MembreContact[])
+      setTotalMembreContacts(typeof count === 'number' ? count : null)
+      setLoadingMembreContacts(false)
+    })
   }, [tab, selectedMembre])
 
   const isLoading = tab === 'owner' ? loadingOwner
@@ -401,7 +405,7 @@ export default function Membres() {
                     <SelectValue>{membreTierFilter === 'all' ? 'Tous les tiers' : membreTierFilter}</SelectValue>
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">Tous les tiers ({membreContacts.length})</SelectItem>
+                    <SelectItem value="all">Tous les tiers ({totalMembreContacts ?? membreContacts.length})</SelectItem>
                     {Object.entries(tierCounts).filter(([, n]) => n > 0).map(([t, n]) => (
                       <SelectItem key={t} value={t}>{t} ({n})</SelectItem>
                     ))}
@@ -416,6 +420,9 @@ export default function Membres() {
 
                 <p className="text-sm text-muted-foreground">
                   {filtered.length} contact{filtered.length > 1 ? 's' : ''}
+                  {totalMembreContacts !== null && totalMembreContacts > membreContacts.length && membreTierFilter === 'all' && membreSecteurFilter.length === 0 && (
+                    <span className="ml-1 text-muted-foreground/60">(sur {totalMembreContacts} au total)</span>
+                  )}
                 </p>
 
                 <Button
