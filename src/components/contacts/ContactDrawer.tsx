@@ -156,7 +156,7 @@ export function ContactDrawer({ contact, onClose, onSaved, isAdmin: adminMode = 
         setOwnerMembreId(ownerRes.data?.owner_membre_id ?? null)
         setMembres((membresRes.data ?? []) as MembreOption[])
         if (entRes.data) {
-          const ent = entRes.data as EntrepriseOption
+          const ent = entRes.data as unknown as EntrepriseOption
           setLinkedEntrepriseName(ent.company_name)
           setLinkedEntrepriseIsDigi(ent.is_digi_client ?? false)
           setLinkedEntrepriseAM((ent.account_manager as { full_name: string } | null)?.full_name ?? null)
