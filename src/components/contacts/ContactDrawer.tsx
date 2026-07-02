@@ -4,6 +4,7 @@ import { supabase } from '@/lib/supabase'
 import { Drawer, FieldGroup, SelectField, TextField } from '@/components/ui/drawer'
 import { Button } from '@/components/ui/button'
 import { scoreContact } from '@/lib/scoring/score-contact'
+import { DigiIcon } from '@/components/icons/DigiIcon'
 import {
   NIVEAU_RELATION_DESCRIPTIONS,
   type Persona, type Hierarchie, type StatutContact, type NiveauRelation,
@@ -58,6 +59,8 @@ interface MembreOption {
 interface EntrepriseOption {
   id: string
   company_name: string
+  is_digi_client?: boolean
+  account_manager?: { id: string; full_name: string } | null
 }
 
 interface SnapshotRow {
@@ -94,6 +97,8 @@ export function ContactDrawer({ contact, onClose, onSaved, isAdmin: adminMode = 
   const [entrepriseResults, setEntrepriseResults] = useState<EntrepriseOption[]>([])
   const [entrepriseSearching, setEntrepriseSearching] = useState(false)
   const [linkedEntrepriseName, setLinkedEntrepriseName] = useState<string | null>(null)
+  const [linkedEntrepriseIsDigi, setLinkedEntrepriseIsDigi] = useState(false)
+  const [linkedEntrepriseAM, setLinkedEntrepriseAM] = useState<string | null>(null)
 
   // Relations
   const [relations, setRelations] = useState<RelationRow[]>([])
@@ -118,6 +123,8 @@ export function ContactDrawer({ contact, onClose, onSaved, isAdmin: adminMode = 
       setEntrepriseSearch('')
       setEntrepriseResults([])
       setLinkedEntrepriseName(null)
+      setLinkedEntrepriseIsDigi(false)
+      setLinkedEntrepriseAM(null)
 
       // Fetch relations, owner, linked entreprise name, and membres
       setLoadingRelations(true)
@@ -140,7 +147,7 @@ export function ContactDrawer({ contact, onClose, onSaved, isAdmin: adminMode = 
         contact.entreprise_id
           ? supabase
               .from('entreprises')
-              .select('id, company_name')
+              .select('id, company_name, is_digi_client, account_manager:account_manager_id(id, full_name)')
               .eq('id', contact.entreprise_id)
               .single()
           : Promise.resolve({ data: null }),
@@ -149,7 +156,10 @@ export function ContactDrawer({ contact, onClose, onSaved, isAdmin: adminMode = 
         setOwnerMembreId(ownerRes.data?.owner_membre_id ?? null)
         setMembres((membresRes.data ?? []) as MembreOption[])
         if (entRes.data) {
-          setLinkedEntrepriseName((entRes.data as EntrepriseOption).company_name)
+          const ent = entRes.data as EntrepriseOption
+          setLinkedEntrepriseName(ent.company_name)
+          setLinkedEntrepriseIsDigi(ent.is_digi_client ?? false)
+          setLinkedEntrepriseAM((ent.account_manager as { full_name: string } | null)?.full_name ?? null)
         }
         setLoadingRelations(false)
       })
@@ -353,16 +363,24 @@ export function ContactDrawer({ contact, onClose, onSaved, isAdmin: adminMode = 
         {adminMode && <div className="space-y-2">
           <h3 className="text-sm font-semibold text-foreground uppercase tracking-wider">Entreprise</h3>
           {entrepriseId && linkedEntrepriseName ? (
-            <div className="flex items-center gap-2 rounded-md bg-muted/50 px-3 py-2">
-              <Building2 className="h-4 w-4 text-muted-foreground" />
-              <span className="text-sm font-medium">{linkedEntrepriseName}</span>
-              <button
-                type="button"
-                onClick={() => { setEntrepriseId(null); setLinkedEntrepriseName(null) }}
-                className="ml-auto text-xs text-muted-foreground hover:text-foreground"
-              >
-                Modifier
-              </button>
+            <div className="rounded-md bg-muted/50 px-3 py-2 space-y-1">
+              <div className="flex items-center gap-2">
+                <Building2 className="h-4 w-4 text-muted-foreground shrink-0" />
+                <span className="text-sm font-medium">{linkedEntrepriseName}</span>
+                {linkedEntrepriseIsDigi && (
+                  <span title="Client Digi"><DigiIcon className="h-4 w-4 shrink-0" /></span>
+                )}
+                <button
+                  type="button"
+                  onClick={() => { setEntrepriseId(null); setLinkedEntrepriseName(null); setLinkedEntrepriseIsDigi(false); setLinkedEntrepriseAM(null) }}
+                  className="ml-auto text-xs text-muted-foreground hover:text-foreground"
+                >
+                  Modifier
+                </button>
+              </div>
+              {linkedEntrepriseAM && (
+                <p className="text-xs text-muted-foreground pl-6">AM : {linkedEntrepriseAM}</p>
+              )}
             </div>
           ) : (
             <div className="space-y-1">
