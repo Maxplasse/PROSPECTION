@@ -10,6 +10,9 @@
 
 import { createClient } from '@supabase/supabase-js'
 import * as dotenv from 'dotenv'
+import { readFileSync } from 'fs'
+import { fileURLToPath } from 'url'
+import { dirname, join } from 'path'
 dotenv.config()
 
 const sb = createClient(
@@ -18,9 +21,63 @@ const sb = createClient(
 )
 
 // ─────────────────────────────────────────────
+// LISTES EXACTES — tmp-classification/
+// Source de vérité prioritaire sur les regex
+// ─────────────────────────────────────────────
+const __dir = dirname(fileURLToPath(import.meta.url))
+const classifDir = join(__dir, '..', 'tmp-classification')
+
+function loadSet(filename) {
+  try {
+    return new Set(
+      readFileSync(join(classifDir, filename), 'utf8')
+        .split('\n').map(l => l.trim()).filter(l => l && l !== '-')
+        .map(l => l.toLowerCase())
+    )
+  } catch { return new Set() }
+}
+
+const HIER_LISTS = {
+  'COMEX':        loadSet('final_hier_COMEX.txt'),
+  'Directeur':    loadSet('final_hier_Directeur.txt'),
+  'Manager':      loadSet('final_hier_Manager.txt'),
+  'Opérationnel': (() => {
+    const s = loadSet('final_hier_Opérationnel.txt')
+    loadSet('final_hier_Stagiaire_Alternant.txt').forEach(v => s.add(v))
+    return s
+  })(),
+}
+const PERSONA_LISTS = {
+  'Dirigeant':          loadSet('final_persona_Dirigeant.txt'),
+  'Marketing':          loadSet('final_persona_Marketing.txt'),
+  'Produit':            loadSet('final_persona_Produit.txt'),
+  'Design':             loadSet('final_persona_Design.txt'),
+  'Commercial':         loadSet('final_persona_Commercial.txt'),
+  'Acheteur':           loadSet('final_persona_Acheteur.txt'),
+  'Hors expertise Digi': loadSet('final_persona_Hors_expertise_Digi.txt'),
+}
+
+// Ordre de priorité pour la recherche exacte
+const HIER_PRIORITY    = ['COMEX', 'Directeur', 'Manager', 'Opérationnel']
+const PERSONA_PRIORITY = ['Dirigeant', 'Marketing', 'Produit', 'Design', 'Commercial', 'Acheteur', 'Hors expertise Digi']
+
+function lookupExact(pos, lists, priority) {
+  const key = pos.trim().toLowerCase()
+  for (const cat of priority) {
+    if (lists[cat].has(key)) return cat
+  }
+  return null
+}
+
+// ─────────────────────────────────────────────
 // RÈGLES DE CLASSIFICATION — HIÉRARCHIE
 // ─────────────────────────────────────────────
 export function getHierarchie(pos) {
+  // 1. Correspondance exacte dans les listes
+  const exact = lookupExact(pos, HIER_LISTS, HIER_PRIORITY)
+  if (exact) return exact
+
+  // 2. Fallback regex
   const p = pos.toLowerCase()
 
   // Stagiaire / Alternant — priorité absolue → 0 pt de hiérarchie
@@ -82,6 +139,11 @@ export function getHierarchie(pos) {
 // RÈGLES DE CLASSIFICATION — PERSONA
 // ─────────────────────────────────────────────
 export function getPersona(pos, hier) {
+  // 1. Correspondance exacte dans les listes
+  const exact = lookupExact(pos, PERSONA_LISTS, PERSONA_PRIORITY)
+  if (exact) return exact
+
+  // 2. Fallback regex
   const p = pos.toLowerCase()
 
   // RH / Human Resources → toujours Hors expertise Digi (fix: Chief HR, Chargée dev RH)
@@ -159,15 +221,63 @@ async function getContactsForMembre(membreId, tier1Ids) {
   return all.filter(c => tier1Ids.has(c.entreprise_id))
 }
 
+async function getAllTier1Contacts(tier1Ids) {
+  const ids = [...tier1Ids]
+  const BATCH = 100  // lot de 100 IDs par requête
+  const all = []
+
+  for (let b = 0; b < ids.length; b += BATCH) {
+    const batch = ids.slice(b, b + BATCH)
+    let from = 0
+    while (true) {
+      const { data, error } = await sb.from('contacts')
+        .select('id, position, hierarchie, persona')
+        .in('entreprise_id', batch)
+        .not('position', 'is', null)
+        .range(from, from + 999)
+      if (error) { console.error(`Erreur batch ${b}-${b + BATCH}:`, error.message); break }
+      if (!data || !data.length) break
+      all.push(...data)
+      if (data.length < 1000) break
+      from += 1000
+    }
+    if ((b + BATCH) % 500 === 0) process.stdout.write(`\r  ${all.length} contacts chargés...`)
+  }
+  process.stdout.write('\n')
+  return all
+}
+
+async function applyUpdates(toUpdate, applyMode) {
+  if (!applyMode || toUpdate.length === 0) return
+  const chunkSize = 50
+  let done = 0
+  for (let i = 0; i < toUpdate.length; i += chunkSize) {
+    const chunk = toUpdate.slice(i, i + chunkSize)
+    for (const row of chunk) {
+      const { error } = await sb.from('contacts')
+        .update({ hierarchie: row.hierarchie, persona: row.persona })
+        .eq('id', row.id)
+      if (error) console.error(`  ❌ Erreur sur "${row.position}":`, error.message)
+      else done++
+    }
+    if (done % 200 === 0 || i + chunkSize >= toUpdate.length) {
+      process.stdout.write(`\r  ✅ ${done}/${toUpdate.length} mis à jour...`)
+    }
+  }
+  console.log()
+}
+
 async function run() {
   const args = process.argv.slice(2)
-  const membreArg = args.find(a => a.startsWith('--membre='))?.split('=')[1]
-  const applyMode = args.includes('--apply')
-  const allMode   = args.includes('--all')
+  const membreArg   = args.find(a => a.startsWith('--membre='))?.split('=')[1]
+  const applyMode   = args.includes('--apply')
+  const allMode     = args.includes('--all')
+  const allTier1Mode = args.includes('--all-tier1')
 
-  if (!membreArg && !allMode) {
+  if (!membreArg && !allMode && !allTier1Mode) {
     console.error('Usage: node classify-persona-hierarchie.mjs --membre=<uuid> [--apply]')
     console.error('       node classify-persona-hierarchie.mjs --all [--apply]')
+    console.error('       node classify-persona-hierarchie.mjs --all-tier1 [--apply]')
     process.exit(1)
   }
 
@@ -176,7 +286,37 @@ async function run() {
   const tier1Ids = await getTier1EntrepriseIds()
   console.log(`Entreprises Tier 1 : ${tier1Ids.size}`)
 
-  // Récupère la liste des membres à traiter
+  // ── Mode --all-tier1 : tous les contacts rattachés à des entreprises Tier 1 ──
+  if (allTier1Mode) {
+    console.log('Chargement de tous les contacts Tier 1...')
+    const contacts = await getAllTier1Contacts(tier1Ids)
+    console.log(`${contacts.length} contacts Tier 1 avec position chargés`)
+
+    const toUpdate = []
+    for (const c of contacts) {
+      const hier    = getHierarchie(c.position)
+      const persona = getPersona(c.position, hier)
+      if (hier !== c.hierarchie || persona !== c.persona) {
+        toUpdate.push({ id: c.id, position: c.position, hierarchie: hier, persona })
+      }
+    }
+
+    console.log(`\n${toUpdate.length} contacts à mettre à jour sur ${contacts.length}\n`)
+
+    // Aperçu (20 premières lignes)
+    for (const row of toUpdate.slice(0, 20)) {
+      console.log(`  "${row.position}" → ${row.hierarchie} / ${row.persona}`)
+    }
+    if (toUpdate.length > 20) console.log(`  ... (${toUpdate.length - 20} autres)`)
+
+    await applyUpdates(toUpdate, applyMode)
+
+    console.log(`\nTotal mis à jour : ${toUpdate.length}`)
+    if (!applyMode) console.log('👉 Relance avec --apply pour appliquer les changements')
+    return
+  }
+
+  // ── Mode --all ou --membre : via contacts_membres_relations ──
   let membreIds = []
   if (allMode) {
     const { data } = await sb.from('membres_digilityx').select('id, full_name')
@@ -201,25 +341,11 @@ async function run() {
     }
 
     console.log(`\n${membre.full_name} — ${contacts.length} contacts Tier 1, ${toUpdate.length} à mettre à jour`)
-
     for (const row of toUpdate) {
       console.log(`  "${row.position}" → ${row.hierarchie} / ${row.persona}`)
     }
 
-    if (applyMode && toUpdate.length > 0) {
-      const chunkSize = 50
-      for (let i = 0; i < toUpdate.length; i += chunkSize) {
-        const chunk = toUpdate.slice(i, i + chunkSize)
-        for (const row of chunk) {
-          const { error } = await sb.from('contacts')
-            .update({ hierarchie: row.hierarchie, persona: row.persona })
-            .eq('id', row.id)
-          if (error) console.error(`  ❌ Erreur sur ${row.position}:`, error.message)
-        }
-      }
-      console.log(`  ✅ ${toUpdate.length} contacts mis à jour`)
-    }
-
+    await applyUpdates(toUpdate, applyMode)
     totalChanges += toUpdate.length
   }
 
@@ -227,4 +353,7 @@ async function run() {
   if (!applyMode) console.log('👉 Relance avec --apply pour appliquer les changements')
 }
 
-run()
+// N'exécute run() que si ce script est le point d'entrée (pas lors d'un import)
+if (import.meta.url === `file://${process.argv[1]}`) {
+  run()
+}
