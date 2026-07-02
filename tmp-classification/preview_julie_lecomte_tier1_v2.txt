@@ -1,0 +1,87 @@
+[dotenv@17.3.1] injecting env (5) from .env -- tip: ⚙️  suppress all logs with { quiet: true }
+👁  Mode DRY-RUN (--apply pour appliquer)
+Entreprises Tier 1 : 1644
+
+Julie Lecomte — 80 contacts Tier 1, 79 à mettre à jour
+  "Chargé de performance digitale" → Opérationnel / Produit
+  "Senior Associate - France & Benelux" → Opérationnel / Hors expertise Digi
+  "Senior Mid-Market Manager - Northern, Central & Eastern Europe" → Manager / Hors expertise Digi
+  "Acheteur services" → Opérationnel / Acheteur
+  "Chargée de marketing digital" → Opérationnel / Marketing
+  "Sr Mgr, End to End Integrated Supply Chain Strategy" → Opérationnel / Hors expertise Digi
+  "Private Equity - Senior Associate | Investisseur" → Opérationnel / Hors expertise Digi
+  "Wealth Manager" → Manager / Hors expertise Digi
+  "Team Lead Acquisition" → Manager / Marketing
+  "Directeur Développement International" → Directeur / Commercial
+  "Business Analyst" → Opérationnel / Hors expertise Digi
+  "Manager Strategic Partnerships" → Manager / Commercial
+  "Chargée de développement des ressources humaines" → Opérationnel / Hors expertise Digi
+  "Chargée de projets | Communication & coordination du réseau RADIAN" → Opérationnel / Marketing
+  "Chargée de mécénat" → Opérationnel / Hors expertise Digi
+  "Directeur Marketing & Communication" → Directeur / Marketing
+  "Procurement Manager - Switzerland" → Manager / Hors expertise Digi
+  "Chief Marketing Officer" → COMEX / Marketing
+  "Senior Associate" → Opérationnel / Hors expertise Digi
+  "Organizational Transformation & Customer Experience Expert" → Opérationnel / Marketing
+  "Responsable des partenariats" → Manager / Commercial
+  "Managing Director" → COMEX / Dirigeant
+  "VP | Sustainability and Impact Advisory" → COMEX / Dirigeant
+  "Senior Global Brand Manager" → Manager / Marketing
+  "Responsable Intelligence Marketing, Parcours Client et Data" → Manager / Marketing
+  "Directrice des ressources humaines" → Directeur / Hors expertise Digi
+  "Responsable Marketing France" → Manager / Marketing
+  "Talent Acquisition Lead" → Manager / Hors expertise Digi
+  "Head of Sales" → Directeur / Commercial
+  "Marketing Director" → Directeur / Marketing
+  "Lead, Talent Acquisition / Responsable, Acquisition de talents - Canada & LATAM (Interim)" → Manager / Hors expertise Digi
+  "Directeur d'agence Sud-Est" → Directeur / Hors expertise Digi
+  "Business Development Team Lead" → Manager / Commercial
+  "Co-founder & CEO (Acquired by mobile.club)" → COMEX / Dirigeant
+  "Directeur Associé" → Directeur / Hors expertise Digi
+  "Information Technology Buyer" → Opérationnel / Produit
+  "Ingénieur Cloud DevOps" → Opérationnel / Produit
+  "CEO & Founder" → COMEX / Dirigeant
+  "Responsable Communication & Marketing" → Manager / Marketing
+  "GSC Sustainability Data Lead" → Manager / Produit
+  "PMO / Project Manager, Vice President" → COMEX / Dirigeant
+  "Directrice des ressources humaines" → Directeur / Hors expertise Digi
+  "Chief Human Resources Officer" → COMEX / Hors expertise Digi
+  "International Marketing Director" → Directeur / Marketing
+  "User Care Expert" → Opérationnel / Hors expertise Digi
+  "Cx/Ux" → Opérationnel / Design
+  "Head of Indirect Procurement" → Directeur / Hors expertise Digi
+  "M&A Associate" → Opérationnel / Hors expertise Digi
+  "Independent Board Member" → Opérationnel / Hors expertise Digi
+  "Agent général" → Opérationnel / Hors expertise Digi
+  "Cross Assets Derivatives Sales Structurer" → Opérationnel / Commercial
+  "Senior Project Manager" → Manager / Hors expertise Digi
+  "Senior Sales Manager" → Manager / Commercial
+  "Entrepreneur in Residence" → Opérationnel / Hors expertise Digi
+  "Head of Growth" → Directeur / Marketing
+  "Global Chief Marketing, Sales, Digital & AI Officer" → COMEX / Marketing
+  "Head of Insights" → Directeur / Hors expertise Digi
+  "Responsable Communication" → Manager / Hors expertise Digi
+  "Purchasing Manager" → Manager / Hors expertise Digi
+  "Head of Revenue Operations" → Directeur / Commercial
+  "Responsable Marketing Digital & E-Commerce" → Manager / Marketing
+  "US Digital Product Accelerator" → Opérationnel / Produit
+  "Digital Marketing Specialist" → Opérationnel / Marketing
+  "Senior Associate" → Opérationnel / Hors expertise Digi
+  "Président et Co-Fondateur" → COMEX / Dirigeant
+  "Communication & Event Manager" → Manager / Hors expertise Digi
+  "Head of Sales Enterprise" → Directeur / Commercial
+  "Chef de la transformation et vice-président ventes et développement des affaires" → COMEX / Commercial
+  "M&A & Debt Advisory | Associate" → Opérationnel / Hors expertise Digi
+  "Co-fondateur & CEO" → COMEX / Dirigeant
+  "Head of Growth" → Directeur / Marketing
+  "Directeur administratif et financier" → Directeur / Hors expertise Digi
+  "People Partner" → Opérationnel / Hors expertise Digi
+  "CRM & Lifecycle Manager" → Manager / Marketing
+  "Head of Growth & Partnerships / Directeur Général Adjoint - AirFund" → COMEX / Marketing
+  "Director, Strategy & Operations Head | R&D" → Directeur / Hors expertise Digi
+  "Talent Recruiter Senior" → Opérationnel / Hors expertise Digi
+  "Responsable Achats Indirects Groupe" → Manager / Acheteur
+  "General Manager, Redpin Payments" → COMEX / Dirigeant
+
+Total : 79 contacts à mettre à jour
+👉 Relance avec --apply pour appliquer les changements
