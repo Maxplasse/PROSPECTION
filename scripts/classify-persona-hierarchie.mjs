@@ -168,7 +168,7 @@ export function getPersona(pos, hier) {
   // Marketing (hors Talent Acquisition)
   const isTalentAcquisition = /\btalent\s+acquisition\b/.test(p)
   if (!isTalentAcquisition && (
-    /\b(marketing|webmarketing|brand|content|growth|seo|sea|crm|acquisition|influence|social media|community|e[-]?reputation|media|médias|analyste web|web analyst|web analytics|e.?commerce|ecommerce|e.?store|amazon|expérience client|customer experience|customer engagement|campaign)/.test(p)
+    /\b(marketing|webmarketing|brand|content|growth|seo|sea|crm|acquisition|influence|social media|community|e[-]?reputation|media|médias|analyste web|web analyst|web analytics|e.?commerce|ecommerce|e.?store|amazon|expérience client|customer experience|customer engagement|campaign|traffic manager)/.test(p)
   )) return 'Marketing'
 
   // Commercial — avant Produit pour éviter que "développement" parte dans Produit
@@ -269,10 +269,11 @@ async function applyUpdates(toUpdate, applyMode) {
 
 async function run() {
   const args = process.argv.slice(2)
-  const membreArg   = args.find(a => a.startsWith('--membre='))?.split('=')[1]
-  const applyMode   = args.includes('--apply')
-  const allMode     = args.includes('--all')
+  const membreArg    = args.find(a => a.startsWith('--membre='))?.split('=')[1]
+  const applyMode    = args.includes('--apply')
+  const allMode      = args.includes('--all')
   const allTier1Mode = args.includes('--all-tier1')
+  const onlyEmpty    = args.includes('--only-empty') // ne touche que les contacts sans hierarchie ET sans persona
 
   if (!membreArg && !allMode && !allTier1Mode) {
     console.error('Usage: node classify-persona-hierarchie.mjs --membre=<uuid> [--apply]')
@@ -294,6 +295,7 @@ async function run() {
 
     const toUpdate = []
     for (const c of contacts) {
+      if (onlyEmpty && (c.hierarchie || c.persona)) continue
       const hier    = getHierarchie(c.position)
       const persona = getPersona(c.position, hier)
       if (hier !== c.hierarchie || persona !== c.persona) {
@@ -301,7 +303,7 @@ async function run() {
       }
     }
 
-    console.log(`\n${toUpdate.length} contacts à mettre à jour sur ${contacts.length}\n`)
+    console.log(`\n${toUpdate.length} contacts à mettre à jour sur ${contacts.length}${onlyEmpty ? ' (seulement ceux sans hierarchie/persona)' : ''}\n`)
 
     // Aperçu (20 premières lignes)
     for (const row of toUpdate.slice(0, 20)) {
