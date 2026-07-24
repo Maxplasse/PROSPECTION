@@ -11,9 +11,24 @@ import fs from 'fs'
 import path from 'path'
 
 const SQL_DIR = 'scripts/generated-sql'
-const MCP_CONFIG = JSON.parse(fs.readFileSync('.mcp.json', 'utf-8'))
-const ACCESS_TOKEN = MCP_CONFIG.mcpServers.supabase.env.SUPABASE_ACCESS_TOKEN
-const PROJECT_REF = MCP_CONFIG.mcpServers.supabase.env.SUPABASE_PROJECT_REF
+
+// Lire les credentials depuis .mcp.json ou variables d'environnement
+let ACCESS_TOKEN, PROJECT_REF
+if (fs.existsSync('.mcp.json')) {
+  const MCP_CONFIG = JSON.parse(fs.readFileSync('.mcp.json', 'utf-8'))
+  ACCESS_TOKEN = MCP_CONFIG.mcpServers?.supabase?.env?.SUPABASE_ACCESS_TOKEN
+  PROJECT_REF = MCP_CONFIG.mcpServers?.supabase?.env?.SUPABASE_PROJECT_REF
+}
+ACCESS_TOKEN = ACCESS_TOKEN || process.env.SUPABASE_ACCESS_TOKEN
+PROJECT_REF = PROJECT_REF || process.env.SUPABASE_PROJECT_REF
+
+if (!ACCESS_TOKEN || !PROJECT_REF) {
+  console.error('Credentials manquants. Définissez SUPABASE_ACCESS_TOKEN et SUPABASE_PROJECT_REF :')
+  console.error('  export SUPABASE_ACCESS_TOKEN=<votre-token>')
+  console.error('  export SUPABASE_PROJECT_REF=<votre-project-ref>')
+  console.error('Ou créez un fichier .mcp.json avec ces valeurs.')
+  process.exit(1)
+}
 
 async function executeSql(sql, filename) {
   const resp = await fetch(
@@ -50,12 +65,8 @@ async function main() {
     .filter(f => f.endsWith('.sql'))
     .sort()
 
-  // Only run remaining relation enrichment files (32-48)
-  const toRun = files.filter(f => {
-    if (!f.startsWith('enrich_relations_')) return false
-    const num = parseInt(f.match(/(\d+)/)?.[1] ?? '0')
-    return num >= 32
-  })
+  const prefix = process.argv[2] ?? 'enrich_entreprises_'
+  const toRun = files.filter(f => f.startsWith(prefix))
 
   console.log(`${toRun.length} SQL files to execute\n`)
 
