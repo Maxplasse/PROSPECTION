@@ -30,6 +30,8 @@ if (!filePath) {
   process.exit(1)
 }
 
+// Seuils canoniques : Grand Groupe >= 5000, ETI >= 250, PME >= 10, TPE >= 1
+// Fallback depuis range : voir deriveTypologyFromRange dans src/lib/scoring/compute-tier.ts
 function deriveTypology(count) {
   if (!count) return null
   if (count >= 5000) return 'Grand Groupe'
