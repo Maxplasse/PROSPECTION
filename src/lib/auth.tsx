@@ -1,5 +1,4 @@
 import { createContext, useContext, useEffect, useState } from 'react'
-import type { User, Session } from '@supabase/supabase-js'
 import { supabase } from './supabase'
 
 export type AppRole = 'admin' | 'account_manager' | 'membre'
@@ -11,8 +10,6 @@ interface Membre {
 }
 
 interface AuthState {
-  user: User | null
-  session: Session | null
   membre: Membre | null
   loading: boolean
   signIn: (email: string, password: string) => Promise<string | null>
@@ -22,47 +19,50 @@ interface AuthState {
 const AuthContext = createContext<AuthState | null>(null)
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(null)
-  const [session, setSession] = useState<Session | null>(null)
   const [membre, setMembre] = useState<Membre | null>(null)
   const [loading, setLoading] = useState(true)
 
-  async function fetchMembre(userId: string) {
+  async function resolveAccess(userId: string): Promise<Membre | null> {
     const { data } = await supabase
       .from('membres_digilityx')
-      .select('id, full_name, role')
+      .select('id, full_name, role, partager_contacts')
       .eq('auth_user_id', userId)
       .single()
-    setMembre(data as Membre | null)
+
+    if (!data || data.partager_contacts === false) return null
+    const { partager_contacts: _, ...membreData } = data
+    return membreData as Membre
   }
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session: s } }) => {
-      setSession(s)
-      setUser(s?.user ?? null)
-      if (s?.user) {
-        fetchMembre(s.user.id).then(() => setLoading(false))
-      } else {
-        setLoading(false)
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (session?.user) {
+        const m = await resolveAccess(session.user.id)
+        if (!m) await supabase.auth.signOut()
+        setMembre(m)
       }
+      setLoading(false)
     })
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, s) => {
-      setSession(s)
-      setUser(s?.user ?? null)
-      if (s?.user) {
-        fetchMembre(s.user.id)
-      } else {
-        setMembre(null)
-      }
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!session) setMembre(null)
     })
 
     return () => subscription.unsubscribe()
   }, [])
 
   async function signIn(email: string, password: string): Promise<string | null> {
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
-    return error?.message ?? null
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+    if (error) return error.message
+
+    const m = await resolveAccess(data.user.id)
+    if (!m) {
+      await supabase.auth.signOut()
+      return "Votre compte n'est pas autorisé à accéder à DigiLeads."
+    }
+
+    setMembre(m)
+    return null
   }
 
   async function signOut() {
@@ -71,7 +71,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, session, membre, loading, signIn, signOut }}>
+    <AuthContext.Provider value={{ membre, loading, signIn, signOut }}>
       {children}
     </AuthContext.Provider>
   )

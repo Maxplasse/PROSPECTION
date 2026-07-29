@@ -23,7 +23,7 @@ function PageSpinner() {
 const basename = import.meta.env.BASE_URL
 
 function AppRoutes() {
-  const { user, membre, loading } = useAuth()
+  const { membre, loading } = useAuth()
 
   if (loading) {
     return (
@@ -33,7 +33,7 @@ function AppRoutes() {
     )
   }
 
-  if (!user) return <Login />
+  if (!membre) return <Login />
 
   const fullAccess = isAdmin(membre?.role)
 
