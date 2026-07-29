@@ -20,8 +20,15 @@ interface MembreStats {
   id: string
   full_name: string
   total: number
+  totalReseau: number
   byStatut: Record<string, number>
 }
+
+const statsCache: {
+  owner: MembreStats[] | null
+  am: MembreStats[] | null
+  tier: MembreStats[] | null
+} = { owner: null, am: null, tier: null }
 
 const STATUTS_ENTREPRISE = [
   'À démarcher', 'Activement démarché', 'Deal en cours', 'Devenu client Digileads',
@@ -125,17 +132,16 @@ type Tab = 'owner' | 'account_manager' | 'tier' | 'membre_digi'
 export default function Membres() {
   const [tab, setTab] = useState<Tab>('owner')
   const [membresCount, setMembresCount] = useState(0)
-  const [ownerStats, setOwnerStats] = useState<MembreStats[]>([])
-  const [amStats, setAmStats] = useState<MembreStats[]>([])
-  const [tierStats, setTierStats] = useState<MembreStats[]>([])
   const [tierView, setTierView] = useState<'table' | 'chart'>('table')
-  // Both default to true: tabs show a spinner until their data lands (or the tab is first opened)
-  const [loadingOwner, setLoadingOwner] = useState(true)
-  const [loadingAM, setLoadingAM] = useState(true)
-  const [loadingTier, setLoadingTier] = useState(true)
-  const ownerLoadedRef = useRef(false)
-  const amLoadedRef = useRef(false)
-  const tierLoadedRef = useRef(false)
+  const [ownerStats, setOwnerStats] = useState<MembreStats[]>(statsCache.owner ?? [])
+  const [amStats, setAmStats] = useState<MembreStats[]>(statsCache.am ?? [])
+  const [tierStats, setTierStats] = useState<MembreStats[]>(statsCache.tier ?? [])
+  const [loadingOwner, setLoadingOwner] = useState(statsCache.owner === null)
+  const [loadingAM, setLoadingAM] = useState(statsCache.am === null)
+  const [loadingTier, setLoadingTier] = useState(statsCache.tier === null)
+  const ownerLoadedRef = useRef(statsCache.owner !== null)
+  const amLoadedRef = useRef(statsCache.am !== null)
+  const tierLoadedRef = useRef(statsCache.tier !== null)
 
   // Vue Membre Digi
   const [allMembres, setAllMembres] = useState<{ id: string; full_name: string; slack_user_id: string | null }[]>([])
@@ -180,17 +186,27 @@ export default function Membres() {
 
   async function loadOwnerStats(membres: typeof allMembres) {
     setLoadingOwner(true)
-    const { data: rpcData } = await supabase.rpc('get_owner_contact_stats')
 
-    const lookup = new Map<string, Record<string, number>>()
-    for (const row of (rpcData ?? []) as { owner_membre_id: string; statut_contact: string | null; cnt: number }[]) {
-      if (!lookup.has(row.owner_membre_id)) lookup.set(row.owner_membre_id, {})
-      const key = row.statut_contact ?? '(vide)'
-      lookup.get(row.owner_membre_id)![key] = Number(row.cnt)
+    const [reseauResults, { data: ownerRpc }] = await Promise.all([
+      (async () => {
+        const counts: Record<string, number> = {}
+        for (const m of membres) {
+          const { data } = await supabase.rpc('count_contacts_for_membre', { p_membre_id: m.id })
+          counts[m.id] = typeof data === 'number' ? data : 0
+        }
+        return counts
+      })(),
+      supabase.rpc('get_owner_contact_stats'),
+    ])
+
+    const ownerLookup = new Map<string, Record<string, number>>()
+    for (const row of (ownerRpc ?? []) as { owner_membre_id: string; statut_contact: string | null; cnt: number }[]) {
+      if (!ownerLookup.has(row.owner_membre_id)) ownerLookup.set(row.owner_membre_id, {})
+      ownerLookup.get(row.owner_membre_id)![row.statut_contact ?? '(vide)'] = Number(row.cnt)
     }
 
-    const stats: MembreStats[] = membres.map(m => {
-      const counts = lookup.get(m.id) ?? {}
+    const results: MembreStats[] = membres.map(m => {
+      const counts = ownerLookup.get(m.id) ?? {}
       const byStatut: Record<string, number> = {}
       let total = 0
       for (const s of STATUTS_CONTACT) {
@@ -200,10 +216,12 @@ export default function Membres() {
       for (const [k, v] of Object.entries(counts)) {
         if (!STATUTS_CONTACT.includes(k)) total += v
       }
-      return { ...m, total, byStatut }
+      return { ...m, total, totalReseau: reseauResults[m.id] ?? 0, byStatut }
     })
 
-    setOwnerStats(stats.sort((a, b) => b.total - a.total))
+    const sorted = results.sort((a, b) => b.totalReseau - a.totalReseau)
+    statsCache.owner = sorted
+    setOwnerStats(sorted)
     setLoadingOwner(false)
   }
 
@@ -229,10 +247,12 @@ export default function Membres() {
       for (const [k, v] of Object.entries(counts)) {
         if (!STATUTS_ENTREPRISE.includes(k)) total += v
       }
-      return { ...m, total, byStatut }
+      return { ...m, total, totalReseau: 0, byStatut }
     })
 
-    setAmStats(stats.sort((a, b) => b.total - a.total))
+    const sorted = stats.sort((a, b) => b.total - a.total)
+    statsCache.am = sorted
+    setAmStats(sorted)
     setLoadingAM(false)
   }
 
@@ -254,11 +274,13 @@ export default function Membres() {
         byStatut[t] = counts[t] ?? 0
         total += byStatut[t]
       }
-      return { ...m, total, byStatut }
+      return { ...m, total, totalReseau: 0, byStatut }
     })
 
     // Sort by Tier 1 desc — flag the most connected on hot accounts first
-    setTierStats(stats.sort((a, b) => (b.byStatut['Tier 1'] ?? 0) - (a.byStatut['Tier 1'] ?? 0)))
+    const sorted = stats.sort((a, b) => (b.byStatut['Tier 1'] ?? 0) - (a.byStatut['Tier 1'] ?? 0))
+    statsCache.tier = sorted
+    setTierStats(sorted)
     setLoadingTier(false)
   }
 
@@ -300,7 +322,7 @@ export default function Membres() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Membres Digi</h1>
         <p className="text-muted-foreground">
-          {membresCount} membres · {tab === 'owner' ? 'Contacts par owner' : tab === 'account_manager' ? 'Entreprises par AM' : tab === 'tier' ? 'Relations par tier' : 'Contacts par membre Digi'}.
+          {membresCount} membres · {tab === 'owner' ? 'Contacts réseau + owner.' : tab === 'account_manager' ? 'Entreprises par AM.' : tab === 'tier' ? 'Relations par tier.' : 'Contacts par membre Digi.'}.
         </p>
       </div>
 
@@ -610,7 +632,8 @@ export default function Membres() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Membre</TableHead>
-                    <TableHead className="text-center">Total {label}</TableHead>
+                    {tab === 'owner' && <TableHead className="text-center">Total contacts</TableHead>}
+                    <TableHead className="text-center">{tab === 'owner' ? 'Total owner' : `Total ${label}`}</TableHead>
                     {statuts.map(s => (
                       <TableHead key={s} className="text-center text-xs">{s}</TableHead>
                     ))}
@@ -620,6 +643,11 @@ export default function Membres() {
                   {stats.filter(m => m.total > 0).map(m => (
                     <TableRow key={m.id}>
                       <TableCell className="font-medium whitespace-nowrap">{m.full_name}</TableCell>
+                      {tab === 'owner' && (
+                        <TableCell className="text-center">
+                          <span className="font-bold">{m.totalReseau}</span>
+                        </TableCell>
+                      )}
                       <TableCell className="text-center">
                         <span className="font-bold">{m.total}</span>
                       </TableCell>
