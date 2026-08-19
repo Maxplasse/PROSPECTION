@@ -276,10 +276,17 @@ export default function Membres() {
 
   async function loadTierStats(membres: typeof allMembres) {
     setLoadingTier(true)
+    await supabase.auth.refreshSession()
     const [{ data: rpcData }, { data: unqualifiedData }] = await Promise.all([
       supabase.rpc('get_membre_relations_by_tier'),
       supabase.rpc('get_membre_tier1_unqualified_count'),
     ])
+
+    if (!rpcData) {
+      tierLoadedRef.current = false
+      setLoadingTier(false)
+      return
+    }
 
     const lookup = new Map<string, Record<string, number>>()
     for (const row of (rpcData ?? []) as { membre_id: string; tier: string; cnt: number }[]) {
