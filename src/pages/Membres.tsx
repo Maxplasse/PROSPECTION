@@ -1,10 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
-import { Loader2, Users, Building2, UserCircle, ChevronDown, Check, Download, Layers, BarChart3, Table as TableIcon } from 'lucide-react'
+import { Loader2, Users, Building2, UserCircle, ChevronDown, Check, Download, Layers } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import * as XLSX from 'xlsx'
-import {
-  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Legend, CartesianGrid,
-} from 'recharts'
 import { supabase } from '@/lib/supabase'
 import {
   Table, TableHeader, TableBody, TableHead, TableRow, TableCell,
@@ -22,6 +19,7 @@ interface MembreStats {
   total: number
   totalReseau: number
   byStatut: Record<string, number>
+  unqualifiedTier1: number
 }
 
 const statsCache: {
@@ -127,24 +125,44 @@ function SecteurMultiSelect({ values, onChange, activeClass }: {
   )
 }
 
+function relativeTime(dateStr: string | null): string {
+  if (!dateStr) return 'Jamais relancé'
+  const diffMs = Date.now() - new Date(dateStr).getTime()
+  const hours = Math.floor(diffMs / 3_600_000)
+  const days = Math.floor(diffMs / 86_400_000)
+  if (hours < 1) return "À l'instant"
+  if (hours < 24) return `Il y a ${hours}h`
+  if (days === 1) return 'Il y a 1 jour'
+  return `Il y a ${days} jours`
+}
+
+function isWithin24h(dateStr: string | null): boolean {
+  if (!dateStr) return false
+  return (Date.now() - new Date(dateStr).getTime()) < 86_400_000
+}
+
 type Tab = 'owner' | 'account_manager' | 'tier' | 'membre_digi'
 
 export default function Membres() {
   const [tab, setTab] = useState<Tab>('owner')
   const [membresCount, setMembresCount] = useState(0)
-  const [tierView, setTierView] = useState<'table' | 'chart'>('table')
+  const [tierOnlyUnqualified, setTierOnlyUnqualified] = useState(false)
   const [ownerStats, setOwnerStats] = useState<MembreStats[]>(statsCache.owner ?? [])
   const [amStats, setAmStats] = useState<MembreStats[]>(statsCache.am ?? [])
   const [tierStats, setTierStats] = useState<MembreStats[]>(statsCache.tier ?? [])
   const [loadingOwner, setLoadingOwner] = useState(statsCache.owner === null)
   const [loadingAM, setLoadingAM] = useState(statsCache.am === null)
   const [loadingTier, setLoadingTier] = useState(statsCache.tier === null)
+  const [tierSlackState, setTierSlackState] = useState<Record<string, 'sending' | 'sent'>>({})
+  const [bulkSending, setBulkSending] = useState(false)
+  const [bulkProgress, setBulkProgress] = useState<{ done: number; total: number } | null>(null)
+
   const ownerLoadedRef = useRef(statsCache.owner !== null)
   const amLoadedRef = useRef(statsCache.am !== null)
   const tierLoadedRef = useRef(statsCache.tier !== null)
 
   // Vue Membre Digi
-  const [allMembres, setAllMembres] = useState<{ id: string; full_name: string; slack_user_id: string | null }[]>([])
+  const [allMembres, setAllMembres] = useState<{ id: string; full_name: string; slack_user_id: string | null; last_slack_nudge_at: string | null }[]>([])
   const [selectedMembre, setSelectedMembre] = useState<string>('all')
   const [membreTierFilter, setMembreTierFilter] = useState<string>('all')
   const [membreSecteurFilter, setMembreSecteurFilter] = useState<string[]>([])
@@ -158,12 +176,12 @@ export default function Membres() {
   useEffect(() => {
     supabase
       .from('membres_digilityx')
-      .select('id, full_name, slack_user_id')
+      .select('id, full_name, slack_user_id, last_slack_nudge_at')
       .eq('actif', true)
       .eq('partager_contacts', true)
       .order('full_name')
       .then(({ data }) => {
-        const list = (data ?? []) as { id: string; full_name: string; slack_user_id: string | null }[]
+        const list = (data ?? []) as { id: string; full_name: string; slack_user_id: string | null; last_slack_nudge_at: string | null }[]
         setAllMembres(list)
         setMembresCount(list.length)
       })
@@ -216,7 +234,7 @@ export default function Membres() {
       for (const [k, v] of Object.entries(counts)) {
         if (!STATUTS_CONTACT.includes(k)) total += v
       }
-      return { ...m, total, totalReseau: reseauResults[m.id] ?? 0, byStatut }
+      return { ...m, total, totalReseau: reseauResults[m.id] ?? 0, byStatut, unqualifiedTier1: 0 }
     })
 
     const sorted = results.sort((a, b) => b.totalReseau - a.totalReseau)
@@ -247,7 +265,7 @@ export default function Membres() {
       for (const [k, v] of Object.entries(counts)) {
         if (!STATUTS_ENTREPRISE.includes(k)) total += v
       }
-      return { ...m, total, totalReseau: 0, byStatut }
+      return { ...m, total, totalReseau: 0, byStatut, unqualifiedTier1: 0 }
     })
 
     const sorted = stats.sort((a, b) => b.total - a.total)
@@ -258,12 +276,20 @@ export default function Membres() {
 
   async function loadTierStats(membres: typeof allMembres) {
     setLoadingTier(true)
-    const { data: rpcData } = await supabase.rpc('get_membre_relations_by_tier')
+    const [{ data: rpcData }, { data: unqualifiedData }] = await Promise.all([
+      supabase.rpc('get_membre_relations_by_tier'),
+      supabase.rpc('get_membre_tier1_unqualified_count'),
+    ])
 
     const lookup = new Map<string, Record<string, number>>()
     for (const row of (rpcData ?? []) as { membre_id: string; tier: string; cnt: number }[]) {
       if (!lookup.has(row.membre_id)) lookup.set(row.membre_id, {})
       lookup.get(row.membre_id)![row.tier] = Number(row.cnt)
+    }
+
+    const unqualifiedLookup = new Map<string, number>()
+    for (const row of (unqualifiedData ?? []) as { membre_id: string; cnt: number }[]) {
+      unqualifiedLookup.set(row.membre_id, Number(row.cnt))
     }
 
     const stats: MembreStats[] = membres.map(m => {
@@ -274,7 +300,7 @@ export default function Membres() {
         byStatut[t] = counts[t] ?? 0
         total += byStatut[t]
       }
-      return { ...m, total, totalReseau: 0, byStatut }
+      return { ...m, total, totalReseau: 0, byStatut, unqualifiedTier1: unqualifiedLookup.get(m.id) ?? 0 }
     })
 
     // Sort by Tier 1 desc — flag the most connected on hot accounts first
@@ -482,11 +508,14 @@ export default function Membres() {
                     {(() => {
                       const membre = allMembres.find(m => m.id === selectedMembre)
                       if (!membre?.slack_user_id) return null
+                      const nudgeBlocked = isWithin24h(membre.last_slack_nudge_at)
                       return (
+                        <>
                         <Button
                           variant="outline"
                           size="sm"
-                          disabled={sendingSlack || slackSent}
+                          disabled={nudgeBlocked || sendingSlack || slackSent}
+                          title={nudgeBlocked ? 'Relance possible dans 24h' : undefined}
                           onClick={async () => {
                             setSendingSlack(true)
                             try {
@@ -497,6 +526,9 @@ export default function Membres() {
                                   message: `Salut ${membre.full_name.split(' ')[0]}, tu as ${aTraiter} contact${aTraiter > 1 ? 's' : ''} dont la relation est à qualifier. Merci de mettre à jour tes relations sur ${appUrl}`,
                                 },
                               })
+                              const nudgeAt = new Date().toISOString()
+                              await supabase.from('membres_digilityx').update({ last_slack_nudge_at: nudgeAt }).eq('id', selectedMembre)
+                              setAllMembres(prev => prev.map(a => a.id === selectedMembre ? { ...a, last_slack_nudge_at: nudgeAt } : a))
                               setSlackSent(true)
                               setTimeout(() => setSlackSent(false), 5000)
                             } finally {
@@ -511,6 +543,10 @@ export default function Membres() {
                           )}
                           {slackSent ? 'Envoyé !' : 'Relancer sur Slack'}
                         </Button>
+                        <span className="text-xs text-muted-foreground">
+                          {relativeTime(membre.last_slack_nudge_at)}
+                        </span>
+                        </>
                       )
                     })()}
                   </div>
@@ -572,62 +608,77 @@ export default function Membres() {
         </div>
       ) : (
         <>
-          {tab === 'tier' && (
-            <div className="flex gap-1 rounded-lg border border-border p-1 w-fit">
-              <button
-                onClick={() => setTierView('table')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md transition-colors ${
-                  tierView === 'table' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-accent'
-                }`}
-              >
-                <TableIcon className="h-3.5 w-3.5" />
-                Tableau
-              </button>
-              <button
-                onClick={() => setTierView('chart')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md transition-colors ${
-                  tierView === 'chart' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-accent'
-                }`}
-              >
-                <BarChart3 className="h-3.5 w-3.5" />
-                Graph
-              </button>
-            </div>
-          )}
-          {tab === 'tier' && tierView === 'chart' ? (() => {
-            const chartData = stats
-              .filter(m => m.total > 0)
-              .map(m => ({ name: m.full_name, ...m.byStatut }))
-            const height = Math.max(300, chartData.length * 28 + 80)
-            const tierColors: Record<string, string> = {
-              'Tier 1': '#10b981',
-              'Tier 2': '#0ea5e9',
-              'Tier 3': '#f59e0b',
-              'Hors-Tier': '#a1a1aa',
-              'Sans tier': '#d4d4d8',
-            }
+          {tab === 'tier' && (() => {
+            const eligible = tierStats.filter(m => {
+              if (m.unqualifiedTier1 === 0) return false
+              const info = allMembres.find(a => a.id === m.id)
+              return info?.slack_user_id && !isWithin24h(info.last_slack_nudge_at)
+            })
             return (
-              <div className="rounded-lg border border-border bg-card p-4 shadow-sm">
-                <ResponsiveContainer width="100%" height={height}>
-                  <BarChart
-                    data={chartData}
-                    layout="vertical"
-                    margin={{ top: 10, right: 20, left: 10, bottom: 10 }}
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setTierOnlyUnqualified(v => !v)}
+                  className={`inline-flex items-center gap-1.5 h-8 rounded-lg border px-3 text-sm transition-colors ${
+                    tierOnlyUnqualified
+                      ? 'border-destructive bg-destructive/10 text-destructive'
+                      : 'border-input bg-transparent text-muted-foreground hover:bg-accent hover:text-foreground'
+                  }`}
+                >
+                  À qualifier T1 uniquement
+                </button>
+                {eligible.length > 0 && (
+                  <button
+                    type="button"
+                    disabled={bulkSending}
+                    onClick={async () => {
+                      if (!window.confirm(`Envoyer une relance Slack à ${eligible.length} membre${eligible.length > 1 ? 's' : ''} ?`)) return
+                      setBulkSending(true)
+                      setBulkProgress({ done: 0, total: eligible.length })
+                      const appUrl = window.location.origin + '/membres'
+                      for (let i = 0; i < eligible.length; i++) {
+                        const m = eligible[i]
+                        const info = allMembres.find(a => a.id === m.id)!
+                        try {
+                          await supabase.functions.invoke('send-slack-notification', {
+                            body: {
+                              slack_user_id: info.slack_user_id,
+                              message: `Salut ${m.full_name.split(' ')[0]}, tu as ${m.unqualifiedTier1} contact${m.unqualifiedTier1 > 1 ? 's' : ''} Tier 1 dont la relation est à qualifier. Merci de mettre à jour tes relations sur ${appUrl}`,
+                            },
+                          })
+                          const nudgeAt = new Date().toISOString()
+                          await supabase.from('membres_digilityx').update({ last_slack_nudge_at: nudgeAt }).eq('id', m.id)
+                          setAllMembres(prev => prev.map(a => a.id === m.id ? { ...a, last_slack_nudge_at: nudgeAt } : a))
+                        } catch { /* continue on error */ }
+                        setBulkProgress({ done: i + 1, total: eligible.length })
+                      }
+                      setBulkSending(false)
+                      setTimeout(() => setBulkProgress(null), 4000)
+                    }}
+                    className="inline-flex items-center gap-1.5 h-8 rounded-lg border border-input bg-transparent px-3 text-sm hover:bg-accent disabled:opacity-50 transition-colors"
                   >
-                    <CartesianGrid strokeDasharray="3 3" horizontal={false} />
-                    <XAxis type="number" />
-                    <YAxis dataKey="name" type="category" width={140} tick={{ fontSize: 12 }} />
-                    <Tooltip />
-                    <Legend />
-                    {statuts.map(s => (
-                      <Bar key={s} dataKey={s} stackId="a" fill={tierColors[s]} />
-                    ))}
-                  </BarChart>
-                </ResponsiveContainer>
+                    {bulkSending ? (
+                      <>
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        {bulkProgress?.done}/{bulkProgress?.total}
+                      </>
+                    ) : bulkProgress && !bulkSending ? (
+                      <>
+                        <Check className="h-3.5 w-3.5 text-emerald-600" />
+                        {bulkProgress.total} envoyés
+                      </>
+                    ) : (
+                      <>
+                        <img src="/slack-logo.jpg" alt="Slack" className="h-3.5 w-3.5 rounded-sm" />
+                        Relancer les {eligible.length}
+                      </>
+                    )}
+                  </button>
+                )}
               </div>
             )
-          })() : (
-            <div className="rounded-lg border border-border bg-card shadow-sm">
+          })()}
+          <div className="rounded-lg border border-border bg-card shadow-sm">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -637,10 +688,11 @@ export default function Membres() {
                     {statuts.map(s => (
                       <TableHead key={s} className="text-center text-xs">{s}</TableHead>
                     ))}
+                    {tab === 'tier' && <TableHead className="text-center text-xs">À qualifier T1</TableHead>}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {stats.filter(m => m.total > 0).map(m => (
+                  {stats.filter(m => m.total > 0 && (!tierOnlyUnqualified || m.unqualifiedTier1 > 0)).map(m => (
                     <TableRow key={m.id}>
                       <TableCell className="font-medium whitespace-nowrap">{m.full_name}</TableCell>
                       {tab === 'owner' && (
@@ -660,19 +712,86 @@ export default function Membres() {
                           )}
                         </TableCell>
                       ))}
+                      {tab === 'tier' && (
+                        <TableCell className="text-center">
+                          {m.unqualifiedTier1 > 0 ? (
+                            <div className="flex flex-col items-center gap-1">
+                              <div className="flex items-center gap-2">
+                              <Badge variant="destructive" className="text-xs tabular-nums">
+                                {m.unqualifiedTier1}
+                              </Badge>
+                              {(() => {
+                                const membreInfo = allMembres.find(a => a.id === m.id)
+                                if (!membreInfo?.slack_user_id) return null
+                                const state = tierSlackState[m.id]
+                                const blocked = isWithin24h(membreInfo.last_slack_nudge_at)
+                                return (
+                                  <button
+                                    type="button"
+                                    disabled={blocked || state === 'sending' || state === 'sent'}
+                                    title={blocked ? 'Relance possible dans 24h' : state === 'sent' ? 'Message envoyé !' : 'Relancer sur Slack'}
+                                    className="inline-flex items-center gap-1 rounded-md border border-input px-2 py-0.5 text-xs hover:bg-accent disabled:opacity-50 transition-colors"
+                                    onClick={async () => {
+                                      setTierSlackState(prev => ({ ...prev, [m.id]: 'sending' }))
+                                      try {
+                                        const appUrl = window.location.origin + '/membres'
+                                        await supabase.functions.invoke('send-slack-notification', {
+                                          body: {
+                                            slack_user_id: membreInfo.slack_user_id,
+                                            message: `Salut ${m.full_name.split(' ')[0]}, tu as ${m.unqualifiedTier1} contact${m.unqualifiedTier1 > 1 ? 's' : ''} Tier 1 dont la relation est à qualifier. Merci de mettre à jour tes relations sur ${appUrl}`,
+                                          },
+                                        })
+                                        const nudgeAt = new Date().toISOString()
+                                        await supabase.from('membres_digilityx').update({ last_slack_nudge_at: nudgeAt }).eq('id', m.id)
+                                        setAllMembres(prev => prev.map(a => a.id === m.id ? { ...a, last_slack_nudge_at: nudgeAt } : a))
+                                        setTierSlackState(prev => ({ ...prev, [m.id]: 'sent' }))
+                                        setTimeout(() => setTierSlackState(prev => {
+                                          const next = { ...prev }
+                                          delete next[m.id]
+                                          return next
+                                        }), 5000)
+                                      } catch {
+                                        setTierSlackState(prev => {
+                                          const next = { ...prev }
+                                          delete next[m.id]
+                                          return next
+                                        })
+                                      }
+                                    }}
+                                  >
+                                    {state === 'sending' ? (
+                                      <Loader2 className="h-3 w-3 animate-spin" />
+                                    ) : state === 'sent' ? (
+                                      <Check className="h-3 w-3 text-emerald-600" />
+                                    ) : (
+                                      <img src="/slack-logo.jpg" alt="Slack" className="h-3.5 w-3.5 rounded-sm" />
+                                    )}
+                                    {state === 'sent' ? 'Envoyé' : 'Relancer'}
+                                  </button>
+                                )
+                              })()}
+                              </div>
+                              <span className="text-xs text-muted-foreground">
+                                {relativeTime(allMembres.find(a => a.id === m.id)?.last_slack_nudge_at ?? null)}
+                              </span>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-emerald-600">✓</span>
+                          )}
+                        </TableCell>
+                      )}
                     </TableRow>
                   ))}
                   {stats.filter(m => m.total === 0).length > 0 && (
                     <TableRow>
-                      <TableCell colSpan={statuts.length + 2} className="text-center text-sm text-muted-foreground py-3">
+                      <TableCell colSpan={statuts.length + 2 + (tab === 'tier' ? 1 : 0)} className="text-center text-sm text-muted-foreground py-3">
                         {stats.filter(m => m.total === 0).length} membres sans {label}
                       </TableCell>
                     </TableRow>
                   )}
                 </TableBody>
               </Table>
-            </div>
-          )}
+          </div>
         </>
       )}
     </div>
