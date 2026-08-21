@@ -366,7 +366,7 @@ export default function Contacts() {
             <SelectTrigger className={relationFilter !== 'all' ? activeClass : ''}>
               <SelectValue>{relationFilter === 'all' ? 'Toute relation' : relationFilter}</SelectValue>
             </SelectTrigger>
-            <SelectContent alignItemWithTrigger={false} className="min-w-[320px]">
+            <SelectContent alignItemWithTrigger={false} collisionAvoidance={{ side: 'none' }} className="min-w-[320px]">
               <SelectItem value="all">Toute relation</SelectItem>
               {(['Non renseigné','Ami','Cercle familial','Ancien collègue','Alumni','Partenaire business','Connaissance','Inconnu'] as NiveauRelation[]).map(level => (
                 <SelectItem
@@ -576,6 +576,7 @@ export default function Contacts() {
                           <SelectContent
                             onClick={e => e.stopPropagation()}
                             alignItemWithTrigger={false}
+                            collisionAvoidance={{ side: 'none' }}
                             className="min-w-[320px]"
                           >
                             {(['Non renseigné','Ami','Cercle familial','Ancien collègue','Alumni','Partenaire business','Connaissance','Inconnu'] as NiveauRelation[]).map(level => (
