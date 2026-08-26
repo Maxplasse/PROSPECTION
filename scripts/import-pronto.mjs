@@ -191,7 +191,7 @@ for (const raw of rows) {
 
     contactsMap.set(key, {
       acwId,
-      linkedin_url: salesNavUrl || linkedinUrl,
+      linkedin_url: linkedinUrl || salesNavUrl,
       linkedin_profile_url: linkedinUrl,
       id_url_linkedin: acwId,
       first_name: r['First Name'] || null,
