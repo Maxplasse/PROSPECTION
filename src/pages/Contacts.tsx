@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams, Link } from 'react-router-dom'
-import { Users, Search, ChevronLeft, ChevronRight, X, Building2, FilterX, ArrowUp, ArrowDown, ExternalLink, Info } from 'lucide-react'
+import { Users, Search, ChevronLeft, ChevronRight, X, Building2, FilterX, ArrowUp, ArrowDown, ExternalLink, Info, AlertCircle } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useSupabaseQuery } from '@/lib/hooks/use-supabase'
 import { useDebouncedValue } from '@/lib/hooks/use-debounced-value'
@@ -108,6 +108,7 @@ export default function Contacts() {
   const [tierFilter, setTierFilter] = useState<string>(!userIsAdmin ? 'Tier 1' : 'all')
   const [relationFilter, setRelationFilter] = useState<string>('all')
   const [scoreAsc, setScoreAsc] = useState(false)
+  const [unqualifiedFirst, setUnqualifiedFirst] = useState(!userIsAdmin)
   const [selected, setSelected] = useState<ContactRow | null>(null)
   const [relationOverrides, setRelationOverrides] = useState<Record<string, string>>({})
   const [onlyMine, setOnlyMine] = useState(false)
@@ -160,6 +161,7 @@ export default function Contacts() {
           p_order_asc: scoreAsc,
           p_offset: page * PAGE_SIZE,
           p_limit: PAGE_SIZE,
+          p_unqualified_first: unqualifiedFirst,
         })
         return { data: (data ?? []) as ContactRow[], error }
       }
@@ -187,8 +189,22 @@ export default function Contacts() {
 
       return query.range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1)
     },
-    [page, hierarchieFilter, personaFilter, statutFilter, entrepriseLinkFilter, tierFilter, relationFilter, scoreAsc, debouncedSearch, entrepriseFilter, restrictToMembreId]
+    [page, hierarchieFilter, personaFilter, statutFilter, entrepriseLinkFilter, tierFilter, relationFilter, scoreAsc, unqualifiedFirst, debouncedSearch, entrepriseFilter, restrictToMembreId]
   )
+
+  const { data: unqualifiedCountResult } = useSupabaseQuery<number>(
+    async () => {
+      if (!restrictToMembreId) return { data: 0, error: null }
+      const { data, error } = await supabase.rpc('count_contacts_for_membre', {
+        p_membre_id: restrictToMembreId,
+        p_tier: 'Tier 1',
+        p_niveau_relation: 'Non renseigné',
+      })
+      return { data: Number(data ?? 0), error }
+    },
+    [restrictToMembreId]
+  )
+  const unqualifiedCount = unqualifiedCountResult ?? 0
 
   const { data: countResult } = useSupabaseQuery<{ count: number }[]>(
     async () => {
@@ -386,6 +402,28 @@ export default function Contacts() {
               ))}
             </SelectContent>
           </Select>
+        )}
+
+        {scoped && unqualifiedCount > 0 && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              if (unqualifiedFirst && tierFilter === 'Tier 1') {
+                setUnqualifiedFirst(false)
+              } else {
+                setTierFilter('Tier 1')
+                setUnqualifiedFirst(true)
+              }
+              setPage(0)
+            }}
+            className={unqualifiedFirst && tierFilter === 'Tier 1' ? activeClass : ''}
+            title="Afficher les contacts Tier 1 sans niveau de relation"
+          >
+            <AlertCircle className="h-3.5 w-3.5 mr-1" />
+            À renseigner ({unqualifiedCount})
+          </Button>
         )}
 
         {userIsAdmin && (
