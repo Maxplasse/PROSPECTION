@@ -1,686 +1,455 @@
-# CLAUDE.md — Lead Detection App (Post-LinkedIn Scraping)
+# CLAUDE.md — DigiLeads (état au 03/09/2026)
 
-## 🧠 Vue d'ensemble du projet
+## Vue d'ensemble
 
-Cette application permet de détecter et qualifier des opportunités de leads après scraping LinkedIn (via Phantombuster). Elle enrichit, score et priorise les contacts et entreprises pour les équipes commerciales Digilityx.
+Application web interne Digilityx pour détecter, qualifier et prioriser des leads B2B après scraping LinkedIn (Phantombuster). Elle enrichit, score et priorise les contacts et entreprises pour les équipes commerciales.
 
 **Stack technique :**
-- **Backend / BDD :** Supabase **exclusivement** (PostgreSQL + Auth + Realtime + Edge Functions)
-- **Frontend :** React 18 + Vite + Tailwind CSS + shadcn/ui (SPA statique)
-- **IA / LLM :** Claude API (Anthropic) — appelé uniquement via Supabase Edge Functions
-- **Intégrations :** Phantombuster, Slack, Google Sheets
-- **Déploiement :** GitHub Pages (site statique)
+- **Frontend :** React 19 + Vite + Tailwind CSS v4 + shadcn/ui + Recharts
+- **Backend / BDD :** Supabase exclusivement (PostgreSQL + Auth + Realtime + Edge Functions)
+- **IA / LLM :** Claude API — appelé uniquement via Supabase Edge Functions
+- **Déploiement :** GitHub Pages (GitHub Actions → branche `gh-pages`) + `vercel.json` présent pour routing SPA si Vercel utilisé
 
 ---
 
-## 🚨 Contrainte absolue — GitHub Pages = site 100% statique
+## Contrainte absolue — Site 100% statique
 
-> **Cette règle prime sur toutes les autres décisions d'architecture.**
+L'application est déployée sur **GitHub Pages** (fichiers statiques uniquement).
 
-L'application est déployée sur **GitHub Pages**, qui ne sert que des fichiers statiques. Cela impose des contraintes strictes :
+### Interdit côté frontend
+- Logique serveur (pas de Next.js API Routes, SSR, Server Components)
+- Appel direct à l'API Anthropic (exposition de clés)
+- Appel direct à l'API Slack
+- `@supabase/ssr` ou tout package lié au rendu serveur
+- `ANTHROPIC_API_KEY`, `SLACK_BOT_TOKEN`, `SUPABASE_SERVICE_ROLE_KEY` dans les variables frontend
 
-### ❌ Ce qui est INTERDIT
-- Toute logique serveur dans le frontend (pas de Next.js API Routes, pas de SSR, pas de Server Components)
-- Appeler directement l'API Anthropic depuis le frontend (exposition de clés secrètes)
-- Appeler l'API Slack depuis le frontend
-- Utiliser `@supabase/ssr` ou tout package lié au rendu serveur
-- Stocker `ANTHROPIC_API_KEY`, `SLACK_BOT_TOKEN` ou `SUPABASE_SERVICE_ROLE_KEY` dans les variables d'environnement frontend
-
-### ✅ Ce qui est AUTORISÉ côté frontend
-- Appels à Supabase via `supabase-js` (clé `anon` uniquement)
-- Appels aux **Supabase Edge Functions** (qui elles, détiennent les secrets)
+### Autorisé côté frontend
+- Appels Supabase via `supabase-js` (clé `anon` uniquement)
+- Appels aux **Supabase Edge Functions** (qui détiennent les secrets)
 - Authentification Supabase Auth
 - Temps réel via Supabase Realtime
-
-### ✅ Toute logique serveur → Supabase Edge Functions
-| Besoin | Solution |
-|--------|----------|
-| Appel Claude API (qualification LLM) | Edge Function `qualify-with-llm` |
-| Envoi de notifications Slack | Edge Function `send-slack-notification` |
-| Réception webhook Phantombuster | Edge Function `process-phantombuster` |
-| Import/sync Google Sheets | Edge Function `sync-google-sheets` |
-| Calcul scoring complexe | Edge Function `score-contact` ou trigger SQL |
 
 ### Variables d'environnement
 
 **Frontend (`.env`) — uniquement les clés publiques :**
 ```env
-VITE_SUPABASE_URL=https://<project-ref>.supabase.co
+VITE_SUPABASE_URL=https://pcxcdhhxnqbxfrqxnikj.supabase.co
 VITE_SUPABASE_ANON_KEY=<anon-key>
 ```
 
-**Supabase Edge Functions (secrets Supabase Dashboard) — jamais dans le frontend :**
+**Supabase Edge Functions (secrets Dashboard — jamais dans le frontend) :**
 ```
-ANTHROPIC_API_KEY=<claude-api-key>
-SLACK_BOT_TOKEN=<slack-bot-token>
-SLACK_CHANNEL_ID=<slack-channel-id>
-SUPABASE_SERVICE_ROLE_KEY=<service-role-key>
-```
-
-Pour définir les secrets Edge Functions :
-```bash
-npx supabase secrets set ANTHROPIC_API_KEY=sk-ant-...
-npx supabase secrets set SLACK_BOT_TOKEN=xoxb-...
+ANTHROPIC_API_KEY
+SLACK_BOT_TOKEN
+SLACK_CHANNEL_ID
+SUPABASE_SERVICE_ROLE_KEY
 ```
 
 ---
 
-## ⚙️ Règles de travail pour Claude Code
+## Rôles utilisateurs
 
-### Mode Plan obligatoire
-Avant toute implémentation, **passe systématiquement en mode Plan** (`/plan`) pour :
-- Les nouvelles fonctionnalités complexes (scoring, qualification LLM, sync Google Sheets)
-- Toute modification de schéma Supabase
-- Les intégrations tierces (Slack, Phantombuster)
-- La mise en place de Edge Functions
+Les rôles sont portés par le champ `role` sur `membres_digilityx` (pas une table séparée).
 
-Présente le plan à l'utilisateur et attends sa validation avant de coder.
+| Rôle | Accès |
+|------|-------|
+| `admin` | Toutes les pages : Dashboard, Entreprises, Contacts, Membres, Notifications, Import |
+| `account_manager` | Contacts + Entreprises uniquement (même accès que membre) |
+| `membre` | Contacts + Entreprises uniquement |
 
-### Utilisation des Skills
-- Pour tout fichier `.xlsx` ou `.csv` (import Google Sheets) → utilise le skill `/mnt/skills/public/xlsx/SKILL.md`
-- Pour tout fichier `.docx` (export rapport) → utilise le skill `/mnt/skills/public/docx/SKILL.md`
-- Pour lire des fichiers uploadés → utilise le skill `/mnt/skills/public/file-reading/SKILL.md`
-- Pour les interfaces frontend → utilise le skill `/mnt/skills/public/frontend-design/SKILL.md`
+**Règle d'accès :** un membre doit avoir `partager_contacts = true` pour pouvoir se connecter. Si `partager_contacts = false`, la connexion est refusée même avec des identifiants valides.
 
-### Conventions de code
+**Connexion liée à `membres_digilityx` :** le champ `auth_user_id` lie un compte Supabase Auth à un membre. Le rôle est lu au moment de la connexion et stocké dans le contexte React (`AuthProvider`).
+
+---
+
+## Schéma de la base de données
+
+### Table : `membres_digilityx`
+
+| Colonne | Type | Description |
+|---------|------|-------------|
+| `id` | UUID PK | |
+| `first_name` / `last_name` | TEXT | |
+| `full_name` | TEXT (généré) | `first_name || ' ' || last_name` |
+| `role` | TEXT | `'membre'` \| `'account_manager'` \| `'admin'` |
+| `email` | TEXT | |
+| `slack_user_id` | TEXT | |
+| `auth_user_id` | UUID | Lien vers Supabase Auth |
+| `actif` | BOOLEAN | `true` par défaut — membre encore présent chez Digi |
+| `partager_contacts` | BOOLEAN | `true` par défaut — ses contacts exclusifs sont visibles des autres |
+| `consent` | BOOLEAN | |
+| `created_at` | TIMESTAMPTZ | |
+
+**Règle :** quand `actif` passe à `false`, `partager_contacts` est forcé à `false` automatiquement (trigger `sync_partager_contacts_on_depart`).
+
+---
+
+### Table : `entreprises`
+
+Colonnes principales :
+
+| Colonne | Type | Description |
+|---------|------|-------------|
+| `id` | UUID PK | |
+| `company_name` | TEXT NOT NULL | |
+| `company_website` / `company_domain` | TEXT | |
+| `company_id_linkedin` | TEXT UNIQUE | |
+| `company_employee_count` | INTEGER | Effectif exact |
+| `company_employee_range` | TEXT | Range textuel Phantombuster |
+| `company_location` | TEXT | |
+| `company_typology` | TEXT | `Grand Groupe` \| `ETI` \| `PME` \| `TPE` \| `Startup` |
+| `secteur_digi` | TEXT | Voir liste des 16 secteurs ci-dessous |
+| `linkedin_industry` | TEXT | Secteur brut LinkedIn |
+| `icp` | BOOLEAN | Calculé automatiquement par trigger |
+| `tier` | TEXT | `Tier 1` \| `Tier 2` \| `Tier 3` \| `Hors-Tier` — calculé par trigger |
+| `statut_entreprise` | TEXT | `À démarcher` \| `Activement démarché` \| `Deal en cours` \| `Devenu client Digileads` |
+| `statut_digi` | TEXT | `Client Digi - pas de mission` \| `Client Digi - mission en cours` \| `Pas client Digi` \| `Client Digileads` |
+| `is_digi_client` | BOOLEAN | Calculé automatiquement depuis `statut_digi` |
+| `owner` | UUID → `membres_digilityx.id` | Propriétaire de l'entreprise |
+| `account_manager_id` | UUID → `membres_digilityx.id` | AM affecté (peut être auto-assigné) |
+| `is_placeholder` | BOOLEAN | Entreprise temporaire sans données réelles |
+| `is_subsidiary` / `is_parent_entity` | BOOLEAN | Hiérarchie groupe/filiale |
+| `parent_company_id` | UUID → `entreprises.id` | |
+| `company_website_from_linkedin` | TEXT | |
+| `company_description` / `company_specialties` | TEXT | |
+| `source_acquisition` | TEXT | |
+| `justification` | TEXT | |
+| `scoring_icp` | INTEGER | |
+| `created_at` / `updated_at` | TIMESTAMPTZ | |
+
+**16 secteurs `secteur_digi` :**
+Pharma/Santé, BAF, Éducation & Formation, Tourisme Hôtellerie & Loisirs, Technologie & IT, Prestations aux entreprises, Media & Communication, Recrutement, Commerce de Détail, Luxe, Services aux Consommateurs, Industrie & Énergie, Transports & Logistique, Immobilier & Construction, Public & Administrations, Concurrent
+
+---
+
+### Table : `contacts`
+
+Colonnes principales :
+
+| Colonne | Type | Description |
+|---------|------|-------------|
+| `id` | UUID PK | |
+| `linkedin_url` | TEXT UNIQUE | |
+| `id_url_linkedin` | TEXT | |
+| `first_name` / `last_name` / `full_name` (généré) | TEXT | |
+| `position` | TEXT | Poste actuel |
+| `email` / `location` | TEXT | |
+| `company_name` | TEXT | Nom brut LinkedIn |
+| `company_id_linkedin` | TEXT | |
+| `entreprise_id` | UUID → `entreprises.id` | Rattachement entreprise |
+| `years_in_position` / `months_in_position` | NUMERIC | |
+| `years_in_company` / `months_in_company` | NUMERIC | |
+| `summary` / `title_description` | TEXT | Profil LinkedIn |
+| `connection_degree` | TEXT | |
+| `is_premium` / `is_open_link` | BOOLEAN | |
+| `shared_connections_count` | INTEGER | |
+| `profile_image_url` / `default_profile_url` | TEXT | |
+| `last_scraped_at` | TIMESTAMPTZ | |
+| `persona` | TEXT | `Dirigeant` \| `Marketing` \| `Produit` \| `Design` \| `Commercial` \| `Acheteur` \| `Hors expertise Digi` |
+| `hierarchie` | TEXT | `COMEX` \| `Directeur` \| `Manager` \| `Opérationnel` \| `Stagiaire/Alternant` |
+| `contact_digi` | BOOLEAN | Contact interne Digilityx |
+| `statut_contact` | TEXT | `À contacter` \| `Contacté` \| `Intéressé` \| `Pas intéressé` \| `Client` |
+| `niveau_de_relation` | TEXT | Valeur cache — maintenue par trigger depuis `contacts_membres_relations` |
+| `scoring` | INTEGER | Calculé automatiquement par trigger (max 100) |
+| `nb_personnes_digi_relation` | INTEGER | Cache — maintenu par trigger |
+| `owner_membre_id` | UUID → `membres_digilityx.id` | |
+| `masque` | BOOLEAN | `true` si tous les membres liés ont `partager_contacts = false` |
+| `query` | TEXT | |
+| `created_at` / `updated_at` | TIMESTAMPTZ | |
+
+---
+
+### Table : `contacts_membres_relations`
+
+Relation many-to-many entre contacts et membres.
+
+| Colonne | Type |
+|---------|------|
+| `contact_id` | UUID → `contacts.id` |
+| `membre_id` | UUID → `membres_digilityx.id` |
+| `niveau_de_relation` | TEXT (par membre) |
+| `connection_degree` | `'1st'` \| `'2nd'` \| `'3rd'` |
+| `notes` | TEXT |
+| `scoring` | INTEGER (dénormalisé) |
+| `company_name` | TEXT (dénormalisé) |
+| `entreprise_id` | UUID (dénormalisé) |
+
+---
+
+## Règles de scoring et de qualification
+
+### Tier / ICP (calculé automatiquement par trigger)
+
+| Condition | Tier | ICP |
+|-----------|------|-----|
+| `company_typology` NULL, TPE ou Startup | Hors-Tier | Non |
+| `secteur_digi = 'Concurrent'` | Hors-Tier | Non |
+| Typologie éligible × secteur NULL | Tier 3 | Non spécifié |
+| Secteur = Pharma/Santé ou BAF | **Tier 1** | Oui |
+| Autres secteurs ICP | **Tier 2** | Oui |
+
+**Dérivation de la typologie depuis l'effectif :**
+- ≥ 5000 → Grand Groupe
+- ≥ 250 → ETI
+- ≥ 10 → PME
+- ≥ 1 → TPE
+
+---
+
+### Scoring contact (max 100 pts, calculé automatiquement par trigger)
+
+| Dimension | Valeur | Points |
+|-----------|--------|--------|
+| **Hiérarchie** | COMEX | 30 |
+| | Directeur | 20 |
+| | Manager | 15 |
+| | Opérationnel | 5 |
+| **Persona** | Tout sauf "Hors expertise Digi" | 20 |
+| **Niveau de relation** | Ami | 30 |
+| | Ancien collègue / Alumni / Partenaire business / Cercle familial | 20 |
+| | Connaissance | 5 |
+| **Nb personnes Digi en relation** | ≥ 3 | 20 |
+| | 2 | 10 |
+| | 1 | 5 |
+
+---
+
+### Affectation automatique des Account Managers
+
+Trigger `auto_assign_account_manager` — s'exécute sur INSERT/UPDATE de `secteur_digi`, `company_typology`, `is_placeholder` sur `entreprises`.
+
+**Règles :**
+- Ne jamais écraser un `account_manager_id` déjà renseigné
+- Ne pas affecter les lignes `is_placeholder = true`
+- Tirage aléatoire parmi le pool du secteur
+
+| Secteur | Typologie | Pool AM |
+|---------|-----------|---------|
+| **Pharma/Santé** | toutes | François Coulon, Clément Guichard, Alexandre Koch, Alexandra Martin |
+| **BAF** | Grand Groupe | Julien Bechkri, Cindy Renard, Emmanuel Utard, Clément Maria |
+| **BAF** | ETI / PME / TPE / null | Christophe Pelletier, Yanis Sif |
+| Autres | — | Aucune affectation automatique |
+
+---
+
+## Fonctions SQL (triggers et RPCs)
+
+### Triggers (s'exécutent automatiquement)
+
+| Fonction | Déclencheur | Rôle |
+|----------|-------------|------|
+| `compute_entreprise_tier_icp` | BEFORE INSERT/UPDATE `company_typology`, `secteur_digi` sur `entreprises` | Calcule `tier` et `icp` |
+| `auto_assign_account_manager` | BEFORE INSERT/UPDATE `secteur_digi`, `company_typology`, `is_placeholder` sur `entreprises` | Affecte un AM selon les règles sectorielles |
+| `sync_is_digi_client` | BEFORE INSERT/UPDATE `statut_digi` sur `entreprises` | Synchronise `is_digi_client` |
+| `compute_contact_scoring` | BEFORE INSERT/UPDATE `hierarchie`, `persona`, `niveau_de_relation`, `nb_personnes_digi_relation` sur `contacts` | Calcule le scoring |
+| `sync_partager_contacts_on_depart` | BEFORE UPDATE `actif` sur `membres_digilityx` | Force `partager_contacts = false` si `actif → false` |
+| `recompute_contact_masque` | AFTER INSERT/UPDATE/DELETE sur `contacts_membres_relations` | Recalcule `masque` sur le contact |
+| `trg_membre_partager_recompute_masque` | AFTER UPDATE `partager_contacts` sur `membres_digilityx` | Recalcule `masque` sur tous les contacts du membre |
+
+### RPCs (appelées depuis le frontend)
+
+| Fonction | Rôle |
+|----------|------|
+| `get_contacts_for_membre(p_membre_id, filtres…, p_offset, p_limit)` | Liste paginée/filtrée des contacts d'un membre (exclut `masque` et `contact_digi`) |
+| `count_contacts_for_membre(p_membre_id, filtres…)` | Comptage avec les mêmes filtres (fast path si aucun filtre) |
+| `get_entreprises_for_membre(p_membre_id, filtres…, p_offset, p_limit)` | Liste paginée/filtrée des entreprises liées aux contacts d'un membre |
+| `count_entreprises_for_membre(p_membre_id, filtres…)` | Comptage avec les mêmes filtres |
+| `get_entreprise_ids_for_membre(p_membre_id)` | UUIDs des entreprises scoped à un membre |
+| `get_membre_relations_by_tier()` | Répartition réseau par tier et par membre (membres actifs, contacts non masqués) |
+| `get_membre_contact_count()` | Nb de contacts par membre (actifs, partageant, non masqués) |
+| `get_membre_tier1_unqualified_count()` | Nb de contacts Tier 1 sans niveau de relation renseigné par membre |
+| `contact_counts_for_entreprises(ids)` | Nb de contacts agrégé par `entreprise_id` |
+| `get_dashboard_stats()` | 9 compteurs pour le dashboard en un seul appel |
+| `get_secteur_stats()` | Nb d'entreprises par secteur |
+
+---
+
+## Edge Functions Supabase
+
+Une seule Edge Function déployée : **`send-slack-notification`**
+
+Envoie une notification Slack quand un contact atteint un score suffisant.
+
+Les autres fonctions prévues initialement (qualify-with-llm, process-phantombuster, sync-google-sheets) **ne sont pas encore implémentées**.
+
+---
+
+## Vues frontend (routes)
+
+| Route | Rôle requis | Description |
+|-------|-------------|-------------|
+| `/` | admin | Dashboard — KPIs globaux |
+| `/entreprises` | tous | Liste filtrée par tier, statut, secteur, AM |
+| `/contacts` | tous | Liste avec scoring, statut, qualification |
+| `/membres` | admin | Stats par membre, gestion du réseau |
+| `/notifications` | admin | Centre de notifications Slack |
+| `/import` | admin | Upload xlsx/csv Phantombuster, enrichissement |
+
+Les rôles `membre` et `account_manager` sont redirigés vers `/contacts` à la connexion.
+
+---
+
+## Conventions de code
+
 - TypeScript strict partout
-- Nommage snake_case pour les colonnes Supabase, camelCase pour le TS
-- Toujours typer les réponses Supabase avec les interfaces générées (`database.types.ts`)
-- Utiliser uniquement `supabase-js` v2 avec la clé `anon` côté frontend — **jamais `@supabase/ssr`**
-- Les variables d'environnement frontend sont préfixées `VITE_` et ne contiennent **aucun secret**
-- Tout appel à une API tierce (Claude, Slack, Google) passe **obligatoirement** par une Edge Function
-- Ne jamais créer de fichier `api/` ou de route serveur dans le projet frontend
+- `snake_case` pour les colonnes Supabase, `camelCase` pour le TypeScript
+- Alias `@/` → `src/` (configuré dans `vite.config.ts`)
+- Client Supabase : `supabase-js` v2 avec clé `anon` uniquement — **jamais `@supabase/ssr`**
+- Variables frontend préfixées `VITE_` — aucun secret
+- Tout appel à une API tierce passe **obligatoirement** par une Edge Function
+- Pas de fichier `api/` ni de route serveur dans le frontend
 
 ---
 
-## 🗄️ ÉTAPE 1 — Créer la base de données Supabase
+## Déploiement
 
-### 1.1 Création du projet Supabase
-
-**Instructions pour l'utilisateur :**
-1. Va sur [supabase.com](https://supabase.com) → "New project"
-2. Nomme le projet : `digilityx-leads`
-3. Choisis une région proche (ex : `eu-west-1`)
-4. Dans le fichier `.env` à la racine (les seules variables frontend autorisées) :
-
-```env
-VITE_SUPABASE_URL=https://<project-ref>.supabase.co
-VITE_SUPABASE_ANON_KEY=<anon-key>
-```
-
-> ⚠️ Les autres secrets (ANTHROPIC_API_KEY, SLACK_BOT_TOKEN, SUPABASE_SERVICE_ROLE_KEY) ne vont **pas** dans ce fichier. Ils sont définis uniquement comme secrets Supabase Edge Functions (voir section contraintes).
-
-### 1.2 Connexion MCP Supabase
-
-**Instructions pour connecter le MCP Supabase à Claude Code :**
-
-1. Dans ton terminal, installe le MCP Supabase :
-```bash
-npx @supabase/mcp-server-supabase@latest
-```
-
-2. Dans le fichier `.mcp.json` à la racine du projet, ajoute :
-```json
-{
-  "mcpServers": {
-    "supabase": {
-      "command": "npx",
-      "args": ["-y", "@supabase/mcp-server-supabase@latest"],
-      "env": {
-        "SUPABASE_ACCESS_TOKEN": "<ton-access-token-supabase>",
-        "SUPABASE_PROJECT_REF": "<ton-project-ref>"
-      }
-    }
-  }
-}
-```
-
-3. L'access token se trouve dans : Supabase Dashboard → Account → Access Tokens
-4. Redémarre Claude Code pour activer le MCP
-
-> ⚠️ Une fois connecté, utilise le MCP Supabase pour exécuter les migrations SQL directement depuis Claude Code.
-
-### 1.3 Schéma SQL — Tables principales
-
-Exécute ce script SQL via le MCP Supabase ou dans l'éditeur SQL Supabase :
-
-```sql
--- =============================================
--- TABLE: entreprises
--- =============================================
-CREATE TABLE IF NOT EXISTS entreprises (
-  id                        UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  company_name              TEXT NOT NULL,
-  company_website           TEXT,
-  company_domain            TEXT,
-  company_id_linkedin       TEXT UNIQUE,
-  company_employee_count    INTEGER,
-  company_employee_range    TEXT,
-  company_location          TEXT,
-  company_typology          TEXT, -- Grand Groupe, ETI, PME, etc.
-  secteur_digi              TEXT,
-  icp                       BOOLEAN DEFAULT FALSE,
-  scoring_icp               INTEGER DEFAULT 0,
-  justification             TEXT,
-  owner                     UUID REFERENCES membres_digilityx(id),
-  tier                      TEXT CHECK (tier IN ('Tier 1', 'Tier 2', 'Tier 3', 'Hors-Tier')),
-  statut_entreprise         TEXT CHECK (statut_entreprise IN (
-                              'Qualifiée', 'A démarcher', 'En cours', 
-                              'Bon Vivant', 'Actuellement client', 
-                              'Deal en cours'
-                            )),
-  created_at                TIMESTAMPTZ DEFAULT NOW(),
-  updated_at                TIMESTAMPTZ DEFAULT NOW()
-);
-
--- =============================================
--- TABLE: membres_digilityx
--- =============================================
-CREATE TABLE IF NOT EXISTS membres_digilityx (
-  id                        UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  first_name                TEXT NOT NULL,
-  last_name                 TEXT NOT NULL,
-  full_name                 TEXT GENERATED ALWAYS AS (first_name || ' ' || last_name) STORED,
-  created_at                TIMESTAMPTZ DEFAULT NOW()
-);
-
--- =============================================
--- TABLE: account_managers
--- =============================================
-CREATE TABLE IF NOT EXISTS account_managers (
-  id                        UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  first_name                TEXT NOT NULL,
-  last_name                 TEXT NOT NULL,
-  full_name                 TEXT GENERATED ALWAYS AS (first_name || ' ' || last_name) STORED,
-  created_at                TIMESTAMPTZ DEFAULT NOW()
-);
-
--- =============================================
--- TABLE: contacts
--- =============================================
-CREATE TABLE IF NOT EXISTS contacts (
-  id                        UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  linkedin_url              TEXT UNIQUE,
-  first_name                TEXT,
-  last_name                 TEXT,
-  full_name                 TEXT GENERATED ALWAYS AS (
-                              COALESCE(first_name, '') || ' ' || COALESCE(last_name, '')
-                            ) STORED,
-  position                  TEXT,
-  email                     TEXT,
-  location                  TEXT,
-  company_name              TEXT,
-  company_id_linkedin       TEXT,
-  entreprise_id             UUID REFERENCES entreprises(id),
-  years_in_position         NUMERIC,
-  months_in_position        NUMERIC,
-  years_in_company          NUMERIC,
-  months_in_company         NUMERIC,
-  id_url_linkedin           TEXT,
-
-  -- Qualification LLM
-  persona                   TEXT CHECK (persona IN (
-                              'Dirigeant', 'Marketing', 'Produit', 
-                              'Design', 'Commercial', 'Hors expertise Digi'
-                            )),
-  hierarchie                TEXT CHECK (hierarchie IN (
-                              'COMEX', 'Directeur', 'Responsable', 'Opérationnel'
-                            )),
-  priorite                  TEXT CHECK (priorite IN ('Priorité 1', 'Priorité 2', 'Priorité 3')),
-
-  -- Statut
-  contact_digi              BOOLEAN DEFAULT FALSE,
-  statut_contact            TEXT CHECK (statut_contact IN (
-                              'A contacter', 'A surveiller', 
-                              'En Discussion', 'Bon Vivant', 
-                              'Pas intéressant', 'A relancer'
-                            )),
-  niveau_de_relation        TEXT CHECK (niveau_de_relation IN (
-                              'Ami', 'Cercle familial', 'Ancien collègue', 
-                              'Alumni', 'Partenaire business', 'Connaissance', 'Inconnu'
-                            )),
-
-  -- Scoring
-  scoring                   INTEGER DEFAULT 0,
-  nb_personnes_digi_relation INTEGER DEFAULT 0,
-  query                     TEXT,
-
-  created_at                TIMESTAMPTZ DEFAULT NOW(),
-  updated_at                TIMESTAMPTZ DEFAULT NOW()
-);
-
--- =============================================
--- TABLE: notifications
--- =============================================
-CREATE TABLE IF NOT EXISTS notifications (
-  id                        UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  description_notification  TEXT,
-  scoring_notification      INTEGER,
-  first_name                TEXT,
-  last_name                 TEXT,
-  full_name                 TEXT GENERATED ALWAYS AS (
-                              COALESCE(first_name, '') || ' ' || COALESCE(last_name, '')
-                            ) STORED,
-  position                  TEXT,
-  company_name              TEXT,
-  statut_notification       TEXT CHECK (statut_notification IN ('Envoyée', 'Lue', 'En attente')),
-  contact_id                UUID REFERENCES contacts(id),
-  entreprise_id             UUID REFERENCES entreprises(id),
-  slack_message_ts          TEXT, -- timestamp message Slack pour mise à jour statut
-  created_at                TIMESTAMPTZ DEFAULT NOW()
-);
-
--- =============================================
--- TRIGGERS: updated_at automatique
--- =============================================
-CREATE OR REPLACE FUNCTION update_updated_at()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW.updated_at = NOW();
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE TRIGGER trigger_entreprises_updated_at
-  BEFORE UPDATE ON entreprises
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
-
-CREATE TRIGGER trigger_contacts_updated_at
-  BEFORE UPDATE ON contacts
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
-
--- =============================================
--- ROW LEVEL SECURITY
--- =============================================
-ALTER TABLE entreprises ENABLE ROW LEVEL SECURITY;
-ALTER TABLE contacts ENABLE ROW LEVEL SECURITY;
-ALTER TABLE membres_digilityx ENABLE ROW LEVEL SECURITY;
-ALTER TABLE account_managers ENABLE ROW LEVEL SECURITY;
-ALTER TABLE notifications ENABLE ROW LEVEL SECURITY;
-
--- Politique de lecture pour les utilisateurs authentifiés
-CREATE POLICY "Authenticated users can read all"
-  ON entreprises FOR SELECT TO authenticated USING (true);
-CREATE POLICY "Authenticated users can read all"
-  ON contacts FOR SELECT TO authenticated USING (true);
-CREATE POLICY "Authenticated users can insert"
-  ON entreprises FOR INSERT TO authenticated WITH CHECK (true);
-CREATE POLICY "Authenticated users can insert"
-  ON contacts FOR INSERT TO authenticated WITH CHECK (true);
-CREATE POLICY "Authenticated users can update"
-  ON entreprises FOR UPDATE TO authenticated USING (true);
-CREATE POLICY "Authenticated users can update"
-  ON contacts FOR UPDATE TO authenticated USING (true);
-```
-
----
-
-## 📊 ÉTAPE 2 — Import des données Google Sheets
-
-### 2.1 Préparation des Google Sheets
-
-L'utilisateur doit exporter (ou connecter via API) les feuilles suivantes en `.xlsx` ou `.csv` :
-- `entreprises.xlsx`
-- `contacts.xlsx`
-- `membres_digilityx.xlsx`
-
-### 2.2 Script d'import
-
-> ⚠️ Avant d'implémenter, utilise le skill `/mnt/skills/public/xlsx/SKILL.md` pour lire les fichiers correctement.
-
-Crée un script `scripts/import-google-sheets.ts` :
-
-```typescript
-// scripts/import-google-sheets.ts
-// Importe les données des exports Google Sheets vers Supabase
-// Usage: npx ts-node scripts/import-google-sheets.ts --file=entreprises.xlsx --table=entreprises
-
-import { createClient } from '@supabase/supabase-js'
-import * as XLSX from 'xlsx'
-import * as path from 'path'
-import * as fs from 'fs'
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
-
-async function importSheet(filePath: string, tableName: string) {
-  const workbook = XLSX.readFile(filePath)
-  const sheet = workbook.Sheets[workbook.SheetNames[0]]
-  const rows = XLSX.utils.sheet_to_json(sheet)
-
-  console.log(`📦 Import de ${rows.length} lignes vers ${tableName}...`)
-
-  // Batch insert par chunks de 100
-  const chunkSize = 100
-  for (let i = 0; i < rows.length; i += chunkSize) {
-    const chunk = rows.slice(i, i + chunkSize)
-    const { error } = await supabase.from(tableName).upsert(chunk as any[])
-    if (error) {
-      console.error(`❌ Erreur à la ligne ${i}:`, error.message)
-    } else {
-      console.log(`✅ Chunk ${i / chunkSize + 1} importé`)
-    }
-  }
-}
-
-// Lancer l'import
-const args = process.argv.slice(2)
-const file = args.find(a => a.startsWith('--file='))?.split('=')[1]
-const table = args.find(a => a.startsWith('--table='))?.split('=')[1]
-
-if (!file || !table) {
-  console.error('Usage: --file=fichier.xlsx --table=nom_table')
-  process.exit(1)
-}
-
-importSheet(path.resolve(file), table)
-```
-
-### 2.3 Connexion directe Google Sheets (optionnel)
-
-Si l'utilisateur préfère une sync temps réel via API Google Sheets, crée une Edge Function Supabase :
-
-```typescript
-// supabase/functions/sync-google-sheets/index.ts
-// Sync automatique depuis Google Sheets API v4
-// Déclencher manuellement ou via cron Supabase
-```
-
----
-
-## 🤖 ÉTAPE 3 — Qualification & Scoring par LLM
-
-### 3.1 Qualification LLM des entreprises
-
-Crée `lib/llm/qualify-company.ts` :
-
-```typescript
-// Qualifie une entreprise selon :
-// - Typology_Taille
-// - Secteur_Digi  
-// - ICP_Typology x Secteur Digi
-// - Scoring_ICP
-// - Tier_Secteur Digi x Secteur x Typology
-// - Statut_Tier
-
-export async function qualifyCompany(company: Entreprise): Promise<QualificationResult>
-```
-
-**Prompt système à utiliser :**
-```
-Tu es un expert en qualification de comptes B2B pour Digilityx, une agence de design et digital.
-Analyse l'entreprise fournie et retourne UNIQUEMENT un JSON avec :
-{
-  "icp": boolean,
-  "scoring_icp": number (0-100),
-  "tier": "Tier 1" | "Tier 2" | "Tier 3" | "Hors-Tier",
-  "statut_entreprise": string,
-  "justification": string (max 200 chars)
-}
-
-Critères ICP Digilityx :
-- Secteurs cibles (16 valeurs, CHECK constraint en base) : Pharma/Santé, BAF, Éducation & Formation, Tourisme Hôtellerie & Loisirs, Technologie & IT, Prestations aux entreprises, Media & Communication, Recrutement, Commerce de Détail, Luxe, Services aux Consommateurs, Industrie & Énergie, Transports & Logistique, Immobilier & Construction, Public & Administrations, Concurrent
-- Taille : ETI / Grand Groupe prioritaires
-- Tier 1 : score ICP > 70
-- Tier 2 : score ICP 40-70
-- Tier 3 : score ICP < 40
-```
-
-### 3.2 Scoring des contacts
-
-Implémente `lib/scoring/score-contact.ts` avec la logique suivante :
-
-```typescript
-// RÈGLES DE SCORING (max 100 points)
-
-// 1. Priorité du compte entreprise (max 40 pts)
-//    Tier 1 → 40 pts | Tier 2 → 25 pts | Tier 3 → 10 pts | Hors-Tier → 0 pt
-
-// 2. Niveau de hiérarchie (max 20 pts)
-//    COMEX → 20 pts | Directeur → 15 pts | Responsable → 10 pts | Opérationnel → 5 pts
-
-// 3. Persona (max 15 pts)
-//    Dirigeant, Marketing, Produit, Design, Commercial → 15 pts | Hors expertise → 0 pt
-
-// 4. Niveau de relation (max 15 pts)
-//    Ami → 15 pts | Cercle familial, Ancien collègue, Alumni, Partenaire → 10 pts
-//    Connaissance → 5 pts | Inconnu → 0 pt
-
-// 5. Nb personnes Digi en relation (max 10 pts)
-//    0 → 0 pt | 1 → 3 pts | 2 → 6 pts | 3+ → 10 pts
-```
-
-### 3.3 Règles de statut automatique
-
-```typescript
-// Statut automatique "A surveiller" :
-// → Entreprise Tier 1 ET Priorité contact Priorité 1 ou 2
-
-// Statut automatique "A contacter" :
-// → Lorsque le statut de la notification sur le contact = "Envoyée"
-```
-
----
-
-## 🔔 ÉTAPE 4 — Système de notifications Slack
-
-### 4.1 Déclenchement
-
-Une notification est créée et envoyée sur Slack quand :
-- Le scoring d'un contact > 7 (après analyse Phantombuster x LLM)
-- Via une Edge Function Supabase ou un webhook
-
-### 4.2 Edge Function : `send-slack-notification`
-
-```typescript
-// supabase/functions/send-slack-notification/index.ts
-
-// Payload Slack :
-// - Nom du contact
-// - Entreprise
-// - Poste
-// - Score
-// - Lien LinkedIn
-// - Bouton "Marquer comme lu" (emoji réaction)
-
-// Pour mettre à jour le statut notification :
-// → Écouter les réactions emoji Slack via Slack Events API
-// → Mettre à jour statut_notification dans Supabase
-```
-
-### 4.3 Connexion Slack Events API (pour lecture des emojis)
-
-```
-Slack App Settings → Event Subscriptions → 
-  URL: https://<project-ref>.supabase.co/functions/v1/slack-events
-  Events: reaction_added, reaction_removed
-```
-
----
-
-## 🖥️ ÉTAPE 5 — Interface / Vues
-
-### Vues à construire (selon le MCD) :
-
-| Vue | Description |
-|-----|-------------|
-| `/dashboard` | KPIs : nb entreprises à démarcher, démarchées, deals en cours, ventilation par statut/owner |
-| `/entreprises` | Liste filtrée par tier, statut, owner, secteur |
-| `/contacts` | Liste avec scoring, statut, qualification LLM |
-| `/notifications` | Centre de notifications avec statut Slack |
-| `/import` | Upload Google Sheets / déclenchement Phantombuster |
-
-### Composants prioritaires :
-
-```
-components/
-  entreprises/
-    EntrepriseCard.tsx
-    EntrepriseTable.tsx
-    QualificationBadge.tsx
-    TierBadge.tsx
-  contacts/
-    ContactCard.tsx
-    ContactScoreBar.tsx
-    StatusDropdown.tsx
-  notifications/
-    NotificationFeed.tsx
-    SlackStatusBadge.tsx
-  dashboard/
-    KPICard.tsx
-    StatutRepartitionChart.tsx
-    OwnerPipelineView.tsx
-```
-
-> ⚠️ Pour les composants visuels, utilise le skill `/mnt/skills/public/frontend-design/SKILL.md`
-
----
-
-## 🔄 ÉTAPE 6 — Flux Phantombuster → App
-
-```
-1. Phantombuster scrape les profils LinkedIn des contacts "A surveiller"
-2. Résultat JSON envoyé en webhook → Edge Function `process-phantombuster`
-3. Edge Function :
-   a. Parse le JSON Phantombuster
-   b. Appelle Claude API pour qualifier/scorer l'activité LinkedIn
-   c. Met à jour le scoring du contact dans Supabase
-   d. Si score > 7 → crée une notification → envoie sur Slack
-4. L'interface affiche la notification en temps réel (Supabase Realtime)
-```
-
-### Structure du webhook Phantombuster :
-
-```typescript
-// Phantombuster envoie les résultats vers une Edge Function (pas une API route frontend) :
-// POST https://<project-ref>.supabase.co/functions/v1/process-phantombuster
-// Body: { contactLinkedinUrl, recentActivity, connections, ... }
-// → L'Edge Function mappe les données vers la table contacts
-// → Lance la qualification LLM via Claude API (secret côté Edge Function)
-// → Met à jour le scoring et déclenche la notification Slack si score > 7
-```
-
----
-
-## 📁 Structure du projet
-
-```
-digilityx-leads/
-├── src/
-│   ├── pages/           # Vues principales (Dashboard, Entreprises, Contacts…)
-│   ├── components/      # Composants React réutilisables
-│   ├── lib/
-│   │   ├── supabase.ts  # Client Supabase (anon key uniquement)
-│   │   └── types.ts     # Types générés depuis database.types.ts
-│   └── main.tsx
-├── supabase/
-│   ├── functions/       # Edge Functions (LLM, Slack, Phantombuster, Sheets)
-│   └── migrations/      # SQL migrations
-├── scripts/
-│   └── import-google-sheets.ts
-├── .env                 # VITE_SUPABASE_URL + VITE_SUPABASE_ANON_KEY uniquement
-├── .env.example         # Template sans valeurs secrètes
-├── .github/
-│   └── workflows/
-│       └── deploy.yml   # GitHub Actions → GitHub Pages
-├── vite.config.ts       # base: '/<nom-du-repo>/'
-├── .mcp.json            # Config MCP Supabase
-└── CLAUDE.md            # Ce fichier
-```
-
-### `vite.config.ts` — configuration GitHub Pages
-
-```typescript
-import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
-
-export default defineConfig({
-  plugins: [react()],
-  base: '/<nom-du-repo-github>/', // ← obligatoire pour GitHub Pages
-})
-```
-
-### `.github/workflows/deploy.yml` — déploiement automatique
-
-```yaml
-name: Deploy to GitHub Pages
-
-on:
-  push:
-    branches: [main]
-
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-      - run: npm ci
-      - run: npm run build
-        env:
-          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
-          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
-      - uses: peaceiris/actions-gh-pages@v4
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./dist
-```
-
-> ⚠️ Ajoute `VITE_SUPABASE_URL` et `VITE_SUPABASE_ANON_KEY` dans les **Secrets GitHub** du repository (Settings → Secrets and variables → Actions). Ces deux valeurs sont publiques par nature (clé anon), mais c'est une bonne pratique de les gérer via secrets GitHub.
-
----
-
-## ✅ Ordre d'implémentation recommandé
-
-1. [ ] Créer le projet Supabase + configurer `.env` (clés publiques uniquement)
-2. [ ] Connecter le MCP Supabase dans `.mcp.json`
-3. [ ] Exécuter les migrations SQL (schéma complet)
-4. [ ] Définir les secrets Supabase (Anthropic, Slack) via `supabase secrets set`
-5. [ ] Importer les données Google Sheets via le script d'import
-6. [ ] Implémenter les Edge Functions (LLM, Slack, Phantombuster)
-7. [ ] Implémenter le scoring dans une Edge Function ou trigger SQL
-8. [ ] Construire les vues frontend (dashboard → contacts → notifications)
-9. [ ] Configurer `vite.config.ts` avec le bon `base` pour GitHub Pages
-10. [ ] Configurer le workflow GitHub Actions (`deploy.yml`)
-11. [ ] Activer GitHub Pages sur la branche `gh-pages` (Settings → Pages)
-12. [ ] Configurer Slack Events API avec l'URL de l'Edge Function
-13. [ ] Tests end-to-end du flux Phantombuster → Score → Slack
-
----
-
-## ⚡ Commandes utiles
+### GitHub Pages (déploiement principal)
 
 ```bash
-# Démarrer le projet en local
+# Push sur main → GitHub Actions build + deploy automatiquement
+git push origin main
+```
+
+GitHub Actions (`deploy.yml`) : build Vite → publie `./dist` sur la branche `gh-pages`.
+Secrets GitHub requis : `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`.
+
+### Commandes utiles
+
+```bash
+# Dev local
 npm run dev
 
-# Build statique (vérifier avant push)
+# Build + preview local
 npm run build && npm run preview
 
 # Générer les types Supabase
-npx supabase gen types typescript --project-id <ref> > src/lib/database.types.ts
-
-# Lancer les migrations
-npx supabase db push
-
-# Définir les secrets Edge Functions (jamais dans .env frontend)
-npx supabase secrets set ANTHROPIC_API_KEY=sk-ant-...
-npx supabase secrets set SLACK_BOT_TOKEN=xoxb-...
-npx supabase secrets set SLACK_CHANNEL_ID=C...
-
-# Importer les données Google Sheets
-npx ts-node scripts/import-google-sheets.ts --file=data/entreprises.xlsx --table=entreprises
-npx ts-node scripts/import-google-sheets.ts --file=data/contacts.xlsx --table=contacts
+npx supabase gen types typescript --project-id pcxcdhhxnqbxfrqxnikj > src/lib/database.types.ts
 
 # Déployer les Edge Functions
-npx supabase functions deploy qualify-with-llm
 npx supabase functions deploy send-slack-notification
-npx supabase functions deploy process-phantombuster
-npx supabase functions deploy sync-google-sheets
+
+# Définir les secrets Edge Functions
+npx supabase secrets set ANTHROPIC_API_KEY=sk-ant-...
+npx supabase secrets set SLACK_BOT_TOKEN=xoxb-...
 ```
+
+---
+
+---
+
+## 👥 Membres Digilityx — règles réelles
+
+### Schéma complet de `membres_digilityx` (après migrations)
+
+```sql
+id                  UUID PRIMARY KEY (généré automatiquement — ne jamais modifier)
+first_name          TEXT NOT NULL
+last_name           TEXT NOT NULL
+full_name           TEXT GENERATED (first_name || ' ' || last_name)
+email               TEXT
+auth_user_id        UUID  -- lié à auth.users.id de Supabase Auth
+role                TEXT  -- 'admin' | 'account_manager' | 'membre'
+actif               BOOLEAN DEFAULT true
+partager_contacts   BOOLEAN DEFAULT true
+slack_user_id       TEXT   -- identifiant Slack format U... (ex: U017Z701THU)
+last_slack_nudge_at TIMESTAMPTZ  -- dernière relance Slack envoyée à ce membre
+created_at          TIMESTAMPTZ
+```
+
+### Règles importantes
+- `auth_user_id` = UUID du compte Supabase Auth (Authentication → Users). C'est le lien entre le login et le membre. **Différent du `id` interne de la table.**
+- Si `actif = false` → `partager_contacts` est automatiquement passé à `false` (trigger SQL)
+- Si `partager_contacts = false` → le membre ne peut **pas se connecter** à l'app (accès refusé dans `auth.tsx`)
+- Pour ajouter un membre : créer le compte dans Supabase Auth d'abord (Authentication → Users → Create user), récupérer son UUID, puis INSERT dans `membres_digilityx` avec `auth_user_id` = cet UUID
+
+### Ajouter un membre (SQL)
+```sql
+INSERT INTO membres_digilityx (first_name, last_name, email, actif, partager_contacts, slack_user_id, auth_user_id, role)
+VALUES ('Prénom', 'Nom', 'email@digilityx.com', true, true, 'UXXXXXXXX', '<UUID-Auth>', 'membre');
+```
+
+---
+
+## 📥 Import des contacts — règles complètes
+
+### Table clé : `contacts_membres_relations`
+Chaque contact peut appartenir au réseau de **plusieurs membres** Digi. La relation est stockée dans `contacts_membres_relations` :
+```sql
+contact_id          UUID REFERENCES contacts(id)
+membre_id           UUID REFERENCES membres_digilityx(id)
+niveau_de_relation  TEXT  -- 'Ami', 'Cercle familial', 'Ancien collègue', 'Alumni',
+                          --  'Partenaire business', 'Connaissance', 'Non renseigné'
+-- Contrainte UNIQUE : (contact_id, membre_id)
+```
+Le `niveau_de_relation` est **par membre** — un même contact peut avoir une relation différente selon chaque membre Digi.
+
+### Champ `masque` sur `contacts`
+Un contact est masqué (`masque = true`) quand **toutes** ses relations membres ont `partager_contacts = false`. Il redevient visible dès qu'un membre actif partageant le pointe.
+
+### Règles de déduplication contacts
+
+| Priorité | Critère | Fiabilité |
+|----------|---------|-----------|
+| 1 | `id_url_linkedin` (ACw...) | ✅ Permanent, ne change jamais |
+| 2 | `linkedin_url` | ⚠️ Peut changer si la personne renomme son profil |
+| 3 | Ni l'un ni l'autre | → INSERT (nouveau contact) |
+
+**Ne jamais écraser** sur un contact existant : `scoring`, `statut_contact`, `persona`, `hierarchie`, `priorite`, `contact_digi`, `niveau_de_relation`.
+
+**Mettre à jour uniquement si changé** : `position`, `company_name`, `company_id_linkedin`, `location`.
+
+### Règles de déduplication entreprises
+
+| Priorité | Critère |
+|----------|---------|
+| 1 | `company_id_linkedin` (ID numérique LinkedIn) |
+| 2 | Nom normalisé (minuscules, sans accents, sans ponctuation) |
+| Si déjà en base | → skip, pas d'écrasement |
+
+### Règles de création de relation
+- `niveau_de_relation = 'Non renseigné'` par défaut à l'import
+- `ignoreDuplicates: true` → n'écrase jamais une relation existante
+- Après chaque import → recalculer `nb_personnes_digi_relation` sur les contacts concernés
+
+### Scripts d'import selon le format
+
+| Format source | Script | Commande |
+|---------------|--------|----------|
+| Export Pronto / Sales Navigator | `import-pronto.mjs` | `node scripts/import-pronto.mjs --file=fichier.xlsx --membre=<uuid>` |
+| Export LinkedIn natif (connexions) | `import-linkedin-connections.mjs` | `node scripts/import-linkedin-connections.mjs --file=fichier.xlsx --membre=<uuid>` |
+| Phantombuster CSV (scraping mensuel) | `monthly-import.mjs` | `node scripts/monthly-import.mjs --file=fichier.csv` |
+| Entreprises Phantombuster | `import-phantombuster-companies.mjs` | `node scripts/import-phantombuster-companies.mjs --file=fichier.csv` |
+
+> ⚠️ Toujours lancer avec `--dry-run` d'abord pour vérifier le résumé avant d'appliquer.
+
+### Limites par format
+
+**Export LinkedIn natif** : pas de `company_id_linkedin`, pas de `company_name`, pas de `location`, pas d'`id_url_linkedin`. Les contacts arrivent sans rattachement entreprise. Attendre un export Pronto enrichi ou enrichir via Phantombuster.
+
+**Export Pronto** : 3 variantes de colonnes gérées automatiquement par `normalizeRow()` dans le script.
+
+---
+
+## 🔧 Scripts utilitaires
+
+| Script | Usage |
+|--------|-------|
+| `classify-persona-hierarchie.mjs` | Classifie automatiquement `persona` et `hierarchie` depuis le poste (Tier 1 en priorité). Lancer après chaque import. |
+| `import-niveau-relation.mjs` | Met à jour `niveau_de_relation` depuis un fichier Excel fourni par un membre. |
+| `detect-merge-duplicates.mjs` | Détecte les doublons contacts (même prénom + nom) et propose une fusion. |
+| `merge-from-xlsx.mjs` | Fusionne les doublons validés manuellement dans un xlsx. |
+| `enrich-apollo.mjs` | Enrichit les entreprises sans taille via API Apollo.io. |
+| `enrich-entreprises-enrichies.mjs` | Applique les données du fichier `ENTREPRISES_ENRICHIES.xlsx` en base. |
+| `find-tier1-sans-relation-dans-xlsx.mjs` | Trouve les contacts Tier 1 sans relation membre dans les xlsx existants. |
+| `map-industry-to-secteur.mjs` | Mappe les industries LinkedIn vers `secteur_digi`. |
+| `verify-classification.mjs` | Vérifie la cohérence des classifications en base vs les règles du script. |
+
+---
+
+## Règles pour Claude Code
+
+- Avant toute implémentation complexe (nouveau schéma, Edge Function, nouvelle logique de scoring), passer en mode Plan et attendre validation
+- Toute modification des règles AM → nouvelle migration SQL dans `supabase/migrations/` avec timestamp `YYYYMMDDHHMMSS_description.sql`
+- Le trigger `compute_entreprise_tier_icp` et la fonction `computeTier` dans `src/lib/scoring/compute-tier.ts` doivent rester synchronisés
+- Le trigger `compute_contact_scoring` et la fonction `scoreContact` dans `src/lib/scoring/score-contact.ts` doivent rester synchronisés
